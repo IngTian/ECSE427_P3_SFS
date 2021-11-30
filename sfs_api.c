@@ -48,6 +48,11 @@ typedef struct directory_entry {
     char file_name[MAX_FILE_NAME_LENGTH + MAX_FILE_EXTENSION_LENGTH + 1]
 } directory_entry;
 
+typedef struct fdt_entry {
+    unsigned int i_node_idx;        // The idx of the i-Node this file points to.
+    unsigned int read_write_pointer // The read/write pointer of this file.
+} fdt_entry;
+
 // --------------------------------------------------------------------
 // ------------------------------- UTILS ------------------------------
 // --------------------------------------------------------------------
