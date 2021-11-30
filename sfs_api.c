@@ -13,14 +13,52 @@
 #define FILE_SYSTEM_SIZE 1024
 #define NUM_OF_I_NODES 200
 #define NUM_OF_FILES NUM_OF_I_NODES
-unsigned int I_NODE_TABLE_START = 1;
-unsigned int I_NODE_TABLE_LENGTH;
-unsigned int ROOT_DIRECTORY_START;
-unsigned int ROOT_DIRECTORY_LENGTH;
-unsigned int DATA_BLOCK_START;
-unsigned int DATA_BLOCK_LENGTH;
-unsigned int BITMAP_START;
-unsigned int BITMAP_LENGTH;
+
+// --------------------------------------------------------------------
+// ------------------------- BASIC DATA TYPES -------------------------
+// --------------------------------------------------------------------
+
+typedef struct super_block {
+    int magic_number;        // This is a magic number.
+    int block_size;          // The size of each block, in bytes.
+    int file_system_size;    // The total number of blocks the disk has.
+    int i_node_table_length; // The number of blocks to contain all i-nodes.
+    int i_node_num;          // The number of i-nodes we have in this disk.
+    int root_directory;      // The pointer to the i-node for the root directory.
+} super_block;
+
+typedef struct i_node {
+    int mode; // The mode to operate on this file.
+    int link_count;
+    int uid;
+    int gid;
+    int size;                // The size of the file.
+    int direct_pointers[12]; // 12 direct pointers, each pointing to a data block.
+    int indirect_pointer;    // One indirect pointer, which points to a block containing references to subsequent blocks.
+} i_node;
+
+typedef struct directory_entry {
+    int i_node_id; // The i-Node this directory points to.
+    char file_name[MAX_FILE_NAME_LENGTH + MAX_FILE_EXTENSION_LENGTH + 1];
+} directory_entry;
+
+typedef struct fdt_entry {
+    int i_node_idx;         // The idx of the i-Node this file points to.
+    int read_write_pointer; // The read/write pointer of this file.
+} fdt_entry;
+
+// --------------------------------------------------------------------
+// ------------------------- GLOBAL VARIABLES -------------------------
+// --------------------------------------------------------------------
+
+int I_NODE_TABLE_START = 1;
+int I_NODE_TABLE_LENGTH;
+int ROOT_DIRECTORY_START;
+int ROOT_DIRECTORY_LENGTH;
+int DATA_BLOCK_START;
+int DATA_BLOCK_LENGTH;
+int BITMAP_START;
+int BITMAP_LENGTH;
 
 // Cached variables.
 i_node i_node_table[NUM_OF_I_NODES];
@@ -28,39 +66,7 @@ fdt_entry fdt_table[NUM_OF_FILES];
 directory_entry root_directory_table[NUM_OF_FILES];
 char bitmap[FILE_SYSTEM_SIZE / 8];
 
-unsigned int files_visited = 0;
-// --------------------------------------------------------------------
-// ------------------------- BASIC DATA TYPES -------------------------
-// --------------------------------------------------------------------
-
-typedef struct superblock {
-    unsigned int magic_number;        // This is a magic number.
-    unsigned int block_size;          // The size of each block, in bytes.
-    unsigned int file_system_size;    // The total number of blocks the disk has.
-    unsigned int i_node_table_length; // The number of blocks to contain all i-nodes.
-    unsigned int i_node_num;          // The number of i-nodes we have in this disk.
-    unsigned int root_directory;      // The pointer to the i-node for the root directory.
-} superblock;
-
-typedef struct i_node {
-    unsigned int mode; // The mode to operate on this file.
-    unsigned int link_count;
-    unsigned int uid;
-    unsigned int gid;
-    unsigned int size;                // The size of the file.
-    unsigned int direct_pointers[12]; // 12 direct pointers, each pointing to a data block.
-    unsigned int indirect_pointer;    // One indirect pointer, which points to a block containing references to subsequent blocks.
-} i_node;
-
-typedef struct directory_entry {
-    unsigned int i_node_id; // The i-Node this directory points to.
-    char file_name[MAX_FILE_NAME_LENGTH + MAX_FILE_EXTENSION_LENGTH + 1]
-} directory_entry;
-
-typedef struct fdt_entry {
-    unsigned int i_node_idx;        // The idx of the i-Node this file points to.
-    unsigned int read_write_pointer // The read/write pointer of this file.
-} fdt_entry;
+int files_visited = 0;
 
 // --------------------------------------------------------------------
 // ------------------------------- UTILS ------------------------------
@@ -71,7 +77,7 @@ typedef struct fdt_entry {
  * @param file_size File size.
  * @return unsigned int The number of blocks.
  */
-unsigned int calculate_block_length(unsigned int file_size) { return file_size / BLOCK_SIZE + (file_size % BLOCK_SIZE) > 0; }
+int calculate_block_length(unsigned int file_size) { return file_size / BLOCK_SIZE + (file_size % BLOCK_SIZE) > 0; }
 
 /**
  * @brief Set the specified bit to 1.
@@ -101,7 +107,7 @@ void assign_0_to_bit(char *record, int bit_idx) { *record = *record & ~(1 << bit
  * @return true If the specified bit is 1.
  * @return false If it is 0.
  */
-bool is_bit_1(char *record, int bit_idx) { return *record & (1 << bit_idx) > 0; }
+bool is_bit_1(const char *record, int bit_idx) { return (*record & (1 << bit_idx)) > 0; }
 
 /**
  * @brief Writes the data to a buffer.
@@ -153,7 +159,7 @@ void flush_bit_map() {
  * @param search_end The last block to search.
  * @return int Returns -1 if no empty blocks, and returns the block id if found.
  */
-int allocate_a_block_in_bitmap(unsigned int search_start, unsigned int search_end) {
+int allocate_a_block_in_bitmap(int search_start, int search_end) {
     int i = search_start;
     for (i; i <= search_end; i++) {
         if (bitmap[i / 8] == 0 || !is_bit_1(&bitmap[i / 8], i % 8))
@@ -170,7 +176,7 @@ int allocate_a_block_in_bitmap(unsigned int search_start, unsigned int search_en
  *
  * @param block_id The ID of the block to free.
  */
-void free_a_block_in_bitmap(unsigned int block_id) {
+void free_a_block_in_bitmap(int block_id) {
     assign_1_to_bit(&bitmap[block_id / 8], block_id % 8);
     flush_bit_map();
 }
@@ -178,13 +184,130 @@ void free_a_block_in_bitmap(unsigned int block_id) {
 // --------------------------------------------------------------------
 // ------------------------- API-Specific Utils -----------------------
 // --------------------------------------------------------------------
+/**
+ * @brief Check whether a file exists in the root directory.
+ *
+ * @param filename The name of the file to check.
+ * @return true if the file exists
+ * @return false if the file does not exist
+ *
+ */
+bool does_file_exist_in_root(const char *filename) {
+    for (int i = 0; i < NUM_OF_FILES; i++)
+        if (root_directory_table[i].i_node_id != -1 && strcmp(root_directory_table[i].file_name, filename) == 0)
+            return true;
+
+    return false;
+}
 
 /**
- * @brief Initialize relevant constants given the superblock info.
- *
- * @param superblock The superblock used to initialize constants.
+ * @brief Get the directory entry of the given filename.
+ * @param filename The name of file to retrieve.
+ * @return The pointer to the specified file entry.
  */
-void initialize_constants(superblock *superblock) {
+directory_entry *get_file_in_root(const char *filename) {
+    for (int i = 0; i < NUM_OF_FILES; i++)
+        if (root_directory_table[i].i_node_id != -1 && strcmp(root_directory_table[i].file_name, filename) == 0)
+            return &root_directory_table[i];
+
+    return NULL;
+}
+
+/**
+ * Get the total number of files under the root directory.
+ * @return The counts.
+ */
+int count_files_in_root() {
+    int result = 0;
+    for (int i = 0; i < NUM_OF_FILES; i++)
+        if (root_directory_table[i].i_node_id != -1)
+            result++;
+    return result;
+}
+
+/**
+ * Get the ith directory entry in the root.
+ * @param i Index.
+ * @return The ith directory entry.
+ */
+directory_entry *get_ith_file_in_root(int i) {
+    int count = 0;
+    for (int j = 0; j < NUM_OF_FILES; ++j)
+        if (root_directory_table[j].i_node_id != -1 && count++ == i)
+            return &root_directory_table[i];
+    return NULL;
+}
+
+/**
+ * Find the first spot that is vacant in the root directory.
+ * @return The idx to the spot.
+ */
+int get_root_first_vacant_spot() {
+    for (int i = 0; i < NUM_OF_FILES; i++)
+        if (root_directory_table[i].i_node_id == -1)
+            return i;
+    return -1;
+}
+
+/**
+ * Get the first vacant i-Node spot.
+ * @return
+ */
+int get_i_node_first_vacant_spot() {
+    for (int i = 0; i < NUM_OF_I_NODES; ++i)
+        if (i_node_table[i].size != -1)
+            return i;
+    return -1;
+}
+
+/**
+ * Assign a new block to an i-Node.
+ * @param node An i-Node.
+ * @return The block idx.
+ */
+int file_assign_new_block(i_node *node) {
+    int vac_block = allocate_a_block_in_bitmap(DATA_BLOCK_START, DATA_BLOCK_START + DATA_BLOCK_LENGTH - 1);
+    if (vac_block == -1)
+        return -1;
+
+    // Try to assign to the direct pointers.
+    for (int i = 0; i < 12; ++i)
+        if (node->direct_pointers[i] == -1) {
+            node->direct_pointers[i] = vac_block;
+            return vac_block;
+        }
+
+    // Try to assign to indirect blocks;
+    if (node->indirect_pointer == -1)
+        node->indirect_pointer = allocate_a_block_in_bitmap(DATA_BLOCK_START, DATA_BLOCK_LENGTH + DATA_BLOCK_START - 1);
+    int *buf = malloc(BLOCK_SIZE);
+    write_blocks(node->indirect_pointer, 1, buf);
+    int i = 0;
+    for (; i < BLOCK_SIZE && buf[i] != -1; ++i)
+        ;
+    buf[i] = vac_block;
+    write_blocks(node->indirect_pointer, 1, buf);
+    free(buf);
+    return vac_block;
+}
+
+/**
+ * Find the first vacant spot in the FDT.
+ * @return The idx to the vacant spot.
+ */
+int get_fdt_first_vacant_spot() {
+    for (int i = 0; i < NUM_OF_FILES; ++i)
+        if (fdt_table[i].i_node_idx == -1)
+            return i;
+    return -1;
+}
+
+/**
+ * @brief Initialize relevant constants given the super_block info.
+ *
+ * @param superblock The super_block used to initialize constants.
+ */
+void initialize_constants(super_block *superblock) {
     if (superblock == NULL) {
         // Initialize from scratch.
         I_NODE_TABLE_START = 1;
@@ -196,7 +319,7 @@ void initialize_constants(superblock *superblock) {
         BITMAP_START = FILE_SYSTEM_SIZE - BITMAP_LENGTH;
         DATA_BLOCK_LENGTH = BITMAP_START - DATA_BLOCK_START;
     } else {
-        // Initialize according to the superblock.
+        // Initialize according to the super_block.
     }
 }
 
@@ -209,7 +332,7 @@ void initialize_constants(superblock *superblock) {
  * If the flag is 1, we create the file system from scratch,
  * in accordance with the default settings.
  *
- * If the flag is 0, we read the superblock from the disk, and
+ * If the flag is 0, we read the super_block from the disk, and
  * initialize the file system accordingly.
  *
  * @param flag Indicate whether to create the file system from scratch.
@@ -223,29 +346,17 @@ void mksfs(int flag) {}
  * @return int
  */
 int sfs_getnextfilename(char *result_buffer) {
-    int traversed_files = 0;
-    directory_entry *first_non_empty_entry = NULL;
-    for (int i = 0; i < NUM_OF_FILES; i++) {
-        directory_entry current_entry = root_directory_table[i];
-        if (current_entry.i_node_id == -1)
-            continue;
-
-        if (traversed_files == 0)
-            first_non_empty_entry = &current_entry;
-
-        if (traversed_files++ == files_visited) {
-            memcpy(result_buffer, current_entry.file_name, sizeof(current_entry.file_name));
-            files_visited++;
-            return 1;
-        }
-    }
-
-    // If there is no first_non_empty entry, there is essentially no files in the root directory.
-    if (first_non_empty_entry == NULL)
+    int count_of_files = count_files_in_root();
+    if (count_of_files == 0)
         return -1;
-    else {
-        memcpy(result_buffer, first_non_empty_entry->file_name, sizeof(first_non_empty_entry->file_name));
-        files_visited++;
+    else if (files_visited == count_of_files - 1) {
+        files_visited = 0;
+        char *file_name = get_ith_file_in_root(0)->file_name;
+        memcpy(result_buffer, file_name, strlen(file_name));
+        return 1;
+    } else {
+        char *file_name = get_ith_file_in_root(files_visited++)->file_name;
+        memcpy(result_buffer, file_name, strlen(file_name));
         return 1;
     }
 }
@@ -257,16 +368,8 @@ int sfs_getnextfilename(char *result_buffer) {
  * @return int The size.
  */
 int sfs_getfilesize(const char *filename) {
-    for (int i = 0; i < NUM_OF_FILES; i++) {
-        directory_entry cur_entry = root_directory_table[i];
-        char *cur_file_name = cur_entry.file_name;
-        unsigned int i_node_id = cur_entry.i_node_id;
-        if (i_node_id == -1 || strcmp(filename, cur_file_name) != 0)
-            continue;
-        i_node node = i_node_table[i_node_id];
-        return node.size;
-    }
-    return -1;
+    directory_entry *result = get_file_in_root(filename);
+    return result == NULL ? -1 : i_node_table[result->i_node_id].size;
 }
 
 /**
@@ -276,43 +379,23 @@ int sfs_getfilesize(const char *filename) {
  * @return int
  */
 int sfs_fopen(char *filename) {
-
-    // If the file exists in the root directory.
-    for (int i = 0; i < NUM_OF_FILES; i++)
-        if (strcmp(root_directory_table[i].file_name, filename) == 0 && root_directory_table[i].i_node_id != -1) {
-            // Put the node to FDT.
-            int fd = 0;
-            for (fd; fd < NUM_OF_FILES && fdt_table[fd] != NULL; fd++)
-                ;
-            fdt_table[fd] = (fdt_entry){root_directory_table[i].i_node_id, 0};
-            return fd;
-        }
-
-    // If the file does not exist in the root directory.
-    unsigned int spare_i_node = -1;
-    for (int i = 0; i < NUM_OF_I_NODES; i++)
-        if (i_node_table[i].size == -1) {
-            spare_i_node = i;
-            break;
-        }
-
-    // If there is no spare i_nodes, all entries are full.
-    if (spare_i_node == -1)
-        return -1;
-
-    i_node_table[spare_i_node].size = 0;
-    for (int i = 0; i < NUM_OF_FILES; i++)
-        if (root_directory_table[i].i_node_id == -1) {
-            root_directory_table[i].i_node_id = spare_i_node;
-            memcpy(root_directory_table[i].file_name, filename, strlen(filename));
-        }
-    int fd = 0;
-    for (fd; fd < NUM_OF_FILES && fdt_table[fd] != NULL; fd++)
-        ;
-    fdt_table[fd] = (fdt_entry){spare_i_node, 0};
-    flush_root_directory_table();
-    flush_i_node_table();
-    return fd;
+    if (does_file_exist_in_root(filename)) {
+        directory_entry target = *get_file_in_root(filename);
+        int vac_fdt = get_fdt_first_vacant_spot();
+        fdt_table[vac_fdt].i_node_idx = target.i_node_id;
+        fdt_table[vac_fdt].read_write_pointer = 0;
+        return vac_fdt;
+    } else {
+        int vac_root = get_root_first_vacant_spot(), vac_i_node = get_i_node_first_vacant_spot(), vac_fdt = get_fdt_first_vacant_spot();
+        i_node_table[vac_i_node].size = 0;
+        root_directory_table[vac_root].i_node_id = vac_i_node;
+        memcpy(root_directory_table[vac_root].file_name, filename, strlen(filename));
+        fdt_table[vac_fdt].i_node_idx = vac_i_node;
+        fdt_table[vac_fdt].read_write_pointer = 0;
+        flush_i_node_table();
+        flush_root_directory_table();
+        return vac_fdt;
+    }
 }
 
 /**
@@ -322,9 +405,9 @@ int sfs_fopen(char *filename) {
  * @return int 1 for success and -1 otherwise.
  */
 int sfs_fclose(int fd) {
-    if (fdt_table[fd] == NULL)
+    if (fdt_table[fd].i_node_idx == -1)
         return -1;
-    fdt_table[fd] = NULL;
+    fdt_table[fd].i_node_idx = -1;
     return 1;
 }
 
@@ -341,7 +424,7 @@ int sfs_fread(int fd, char *buf, int length) {}
  */
 int sfs_fseek(int fd, int loc) {
     fdt_entry file = fdt_table[fd];
-    unsigned int i_node_id = file.i_node_idx;
+    int i_node_id = file.i_node_idx;
     i_node node = i_node_table[i_node_id];
     if (node.size <= loc)
         return -1;
@@ -349,4 +432,43 @@ int sfs_fseek(int fd, int loc) {
     return 1;
 }
 
-int sfs_remove(char *filename) {}
+/**
+ * Remove a file from the file system.
+ * @param filename Name of the file to remove.
+ * @return 1 for success and -1 otherwise.
+ */
+int sfs_remove(char *filename) {
+    if (!does_file_exist_in_root(filename))
+        return -1;
+    directory_entry entry = *get_file_in_root(filename);
+    i_node node = i_node_table[entry.i_node_id];
+
+    // Clear fdt.
+    for (int i = 0; i < NUM_OF_FILES; ++i)
+        if (fdt_table[i].i_node_idx == entry.i_node_id) {
+            fdt_table[i].i_node_idx = -1;
+            break;
+        }
+
+    // Clear i-Node table.
+    i_node_table[entry.i_node_id].size = -1;
+
+    // Clear memory;
+    for (int i = 0; i < 12 && node.direct_pointers[i] != -1; ++i)
+        free_a_block_in_bitmap(node.direct_pointers[i]);
+
+    if (node.indirect_pointer != -1) {
+        void *buf = (void *)malloc(BLOCK_SIZE);
+        read_blocks(node.indirect_pointer, 1, buf);
+        int array_of_pointers[BLOCK_SIZE];
+        memcpy(array_of_pointers, buf, BLOCK_SIZE);
+        free(buf);
+        for (int i = 0; i < BLOCK_SIZE && array_of_pointers[i] != -1; ++i)
+            free_a_block_in_bitmap(array_of_pointers[i]);
+    }
+
+    flush_i_node_table();
+    flush_root_directory_table();
+
+    return 1;
+}
