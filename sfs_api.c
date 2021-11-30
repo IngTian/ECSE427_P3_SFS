@@ -151,15 +151,27 @@ void flush_bit_map() {
  * @param search_end The last block to search.
  * @return int Returns -1 if no empty blocks, and returns the block id if found.
  */
-int allocate_a_block(unsigned int search_start, unsigned int search_end) {}
+int allocate_a_block_in_bitmap(unsigned int search_start, unsigned int search_end) {
+    int i = search_start;
+    for (i; i <= search_end; i++) {
+        if (bitmap[i / 8] == 0 || !is_bit_1(&bitmap[i / 8], i % 8))
+            continue;
+        assign_0_to_bit(&bitmap[i / 8], i % 8);
+        flush_bit_map();
+        return i;
+    }
+    return -1;
+}
 
 /**
  * @brief Free the specified block by erasing it from the bitmap, and then flush the bitmap to the disk.
  *
  * @param block_id The ID of the block to free.
- * @return Returns true if successful, false otherwise.
  */
-bool free_a_block(unsigned int block_id) {}
+void free_a_block_in_bitmap(unsigned int block_id) {
+    assign_1_to_bit(&bitmap[block_id / 8], block_id % 8);
+    flush_bit_map();
+}
 
 // --------------------------------------------------------------------
 // ------------------------- API-Specific Utils -----------------------
