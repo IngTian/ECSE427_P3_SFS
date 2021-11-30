@@ -1,7 +1,9 @@
 #include "sfs_api.h"
+#include "disk_emu.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 // --------------------------------------------------------------------
 // ----------------------------- CONSTANTS ----------------------------
 // --------------------------------------------------------------------
@@ -20,6 +22,11 @@ unsigned int DATA_BLOCK_LENGTH;
 unsigned int BITMAP_START;
 unsigned int BITMAP_LENGTH;
 
+// Cached variables.
+i_node i_node_table[NUM_OF_I_NODES];
+fdt_entry fdt_table[NUM_OF_FILES];
+directory_entry root_directory_table[NUM_OF_FILES];
+char bitmap[FILE_SYSTEM_SIZE / 8];
 // --------------------------------------------------------------------
 // ------------------------- BASIC DATA TYPES -------------------------
 // --------------------------------------------------------------------
@@ -95,28 +102,47 @@ void assign_0_to_bit(char *record, int bit_idx) { *record = *record & ~(1 << bit
 bool is_bit_1(char *record, int bit_idx) { return *record & (1 << bit_idx) > 0; }
 
 /**
- * @brief Flush the cached i_Node table to disk.
+ * @brief Writes the data to a buffer.
  *
- * @return true If successful.
- * @return false If failed.
+ * @param data The data to be written.
+ * @param data_size The size of data, in bytes.
+ * @return void* The pointer to the result buffer.
  */
-bool flush_i_node_table() {}
+void *write_data_to_a_buffer(void *data, unsigned int data_size) {
+    unsigned int num_of_blocks_needed = calculate_block_length(data_size);
+    unsigned int total_mem_size = num_of_blocks_needed * BLOCK_SIZE;
+    void *buffer = (void *)malloc(total_mem_size);
+    memset(buffer, 0, total_mem_size);
+    memcpy(buffer, data, data_size);
+    return buffer;
+}
+
+/**
+ * @brief Flush the cached i_Node table to disk.
+ */
+void flush_i_node_table() {
+    void *buffer = write_data_to_a_buffer(i_node_table, NUM_OF_I_NODES * sizeof(i_node));
+    write_blocks(I_NODE_TABLE_START, I_NODE_TABLE_LENGTH, buffer);
+    free(buffer);
+}
 
 /**
  * @brief Flush the root directory table to the disk.
- *
- * @return true If successful.
- * @return false If failed.
  */
-bool flush_root_directory_table() {}
+void flush_root_directory_table() {
+    void *buffer = write_data_to_a_buffer(root_directory_table, NUM_OF_FILES * sizeof(directory_entry));
+    write_blocks(ROOT_DIRECTORY_START, ROOT_DIRECTORY_LENGTH, buffer);
+    free(buffer);
+}
 
 /**
  * @brief Flush the cached bitmap to the disk.
- *
- * @return true If successful.
- * @return false If failed.
  */
-bool flush_bit_map() {}
+void flush_bit_map() {
+    void *buffer = write_data_to_a_buffer(bitmap, FILE_SYSTEM_SIZE / 8);
+    write_blocks(BITMAP_START, BITMAP_LENGTH, buffer);
+    free(buffer);
+}
 
 /**
  * @brief Find the first empty block given that range, update the bitmap, and then flush the cached bitmap to disk.
