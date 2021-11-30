@@ -304,7 +304,7 @@ int sfs_fopen(char *filename) {
     for (int i = 0; i < NUM_OF_FILES; i++)
         if (root_directory_table[i].i_node_id == -1) {
             root_directory_table[i].i_node_id = spare_i_node;
-            memcpy(root_directory_table[i].file_name, filename);
+            memcpy(root_directory_table[i].file_name, filename, strlen(filename));
         }
     int fd = 0;
     for (fd; fd < NUM_OF_FILES && fdt_table[fd] != NULL; fd++)
@@ -315,12 +315,38 @@ int sfs_fopen(char *filename) {
     return fd;
 }
 
-int sfs_fclose(int fd) {}
+/**
+ * @brief Remove the file from FDT.
+ *
+ * @param fd The file descriptor.
+ * @return int 1 for success and -1 otherwise.
+ */
+int sfs_fclose(int fd) {
+    if (fdt_table[fd] == NULL)
+        return -1;
+    fdt_table[fd] = NULL;
+    return 1;
+}
 
 int sfs_fwrite(int fd, const char *buf, int length) {}
 
 int sfs_fread(int fd, char *buf, int length) {}
 
-int sfs_fseek(int fd, int loc) {}
+/**
+ * @brief Adjust the read/write pointer of a file.
+ *
+ * @param fd The file descriptor.
+ * @param loc The new location of the read/write pointer.
+ * @return int 1 for success and -1 otherwise.
+ */
+int sfs_fseek(int fd, int loc) {
+    fdt_entry file = fdt_table[fd];
+    unsigned int i_node_id = file.i_node_idx;
+    i_node node = i_node_table[i_node_id];
+    if (node.size <= loc)
+        return -1;
+    file.read_write_pointer = loc;
+    return 1;
+}
 
 int sfs_remove(char *filename) {}
