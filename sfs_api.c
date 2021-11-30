@@ -269,7 +269,51 @@ int sfs_getfilesize(const char *filename) {
     return -1;
 }
 
-int sfs_fopen(char *filename) {}
+/**
+ * @brief Open the specified file. If the file does not exist, create the file.
+ *
+ * @param filename The specified filename.
+ * @return int
+ */
+int sfs_fopen(char *filename) {
+
+    // If the file exists in the root directory.
+    for (int i = 0; i < NUM_OF_FILES; i++)
+        if (strcmp(root_directory_table[i].file_name, filename) == 0 && root_directory_table[i].i_node_id != -1) {
+            // Put the node to FDT.
+            int fd = 0;
+            for (fd; fd < NUM_OF_FILES && fdt_table[fd] != NULL; fd++)
+                ;
+            fdt_table[fd] = (fdt_entry){root_directory_table[i].i_node_id, 0};
+            return fd;
+        }
+
+    // If the file does not exist in the root directory.
+    unsigned int spare_i_node = -1;
+    for (int i = 0; i < NUM_OF_I_NODES; i++)
+        if (i_node_table[i].size == -1) {
+            spare_i_node = i;
+            break;
+        }
+
+    // If there is no spare i_nodes, all entries are full.
+    if (spare_i_node == -1)
+        return -1;
+
+    i_node_table[spare_i_node].size = 0;
+    for (int i = 0; i < NUM_OF_FILES; i++)
+        if (root_directory_table[i].i_node_id == -1) {
+            root_directory_table[i].i_node_id = spare_i_node;
+            memcpy(root_directory_table[i].file_name, filename);
+        }
+    int fd = 0;
+    for (fd; fd < NUM_OF_FILES && fdt_table[fd] != NULL; fd++)
+        ;
+    fdt_table[fd] = (fdt_entry){spare_i_node, 0};
+    flush_root_directory_table();
+    flush_i_node_table();
+    return fd;
+}
 
 int sfs_fclose(int fd) {}
 
