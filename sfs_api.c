@@ -68,21 +68,21 @@ unsigned int calculate_block_length(unsigned int file_size) { return file_size /
  * @brief Set the specified bit to 1.
  *
  * @param record The byte to operate on.
- * @param bit_idx The index of the bit, with the leftmost bit being 0 and the rightmost being 7.
+ * @param bit_idx The index of the bit, with the leftmost bit being 7 and the rightmost being 0.
  * @return true If successfull.
  * @return false Otherwise.
  */
-bool assign_1_to_bit(char *record, int bit_idx) {}
+void assign_1_to_bit(char *record, int bit_idx) { *record = *record | (1 << bit_idx); }
 
 /**
  * @brief Set the specified bit to 0.
  *
  * @param record The byte to operate on.
- * @param bit_idx The index of the bit, with the leftmost bit being 0 and the rightmost being 7.
+ * @param bit_idx The index of the bit, with the leftmost bit being 7 and the rightmost being 0.
  * @return true If successfull.
  * @return false Otherwise.
  */
-bool assign_0_to_bit(char *record, int bit_idx) {}
+void assign_0_to_bit(char *record, int bit_idx) { *record = *record & ~(1 << bit_idx); }
 
 /**
  * @brief Determines if the specified bit is 1.
@@ -92,7 +92,7 @@ bool assign_0_to_bit(char *record, int bit_idx) {}
  * @return true If the specified bit is 1.
  * @return false If it is 0.
  */
-bool is_bit_1(char *record, int bit_idx) {}
+bool is_bit_1(char *record, int bit_idx) { return *record & (1 << bit_idx) > 0; }
 
 /**
  * @brief Flush the cached i_Node table to disk.
@@ -134,6 +134,10 @@ int allocate_a_block(unsigned int search_start, unsigned int search_end) {}
  * @return Returns true if successful, false otherwise.
  */
 bool free_a_block(unsigned int block_id) {}
+
+// --------------------------------------------------------------------
+// ------------------------- API-Specific Utils -----------------------
+// --------------------------------------------------------------------
 
 /**
  * @brief Initialize relevant constants given the superblock info.
