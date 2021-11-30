@@ -27,6 +27,8 @@ i_node i_node_table[NUM_OF_I_NODES];
 fdt_entry fdt_table[NUM_OF_FILES];
 directory_entry root_directory_table[NUM_OF_FILES];
 char bitmap[FILE_SYSTEM_SIZE / 8];
+
+unsigned int files_visited = 0;
 // --------------------------------------------------------------------
 // ------------------------- BASIC DATA TYPES -------------------------
 // --------------------------------------------------------------------
@@ -201,3 +203,63 @@ void initialize_constants(superblock *superblock) {
 // --------------------------------------------------------------------
 // ------------------------------ APIs --------------------------------
 // --------------------------------------------------------------------
+
+/**
+ * @brief Initialize Simple File System.
+ * If the flag is 1, we create the file system from scratch,
+ * in accordance with the default settings.
+ *
+ * If the flag is 0, we read the superblock from the disk, and
+ * initialize the file system accordingly.
+ *
+ * @param flag Indicate whether to create the file system from scratch.
+ */
+void mksfs(int flag) {}
+
+/**
+ * @brief Get the name of the next file.
+ *
+ * @param filename
+ * @return int
+ */
+int sfs_getnextresult_buffer(char *result_buffer) {
+    int traversed_files = 0;
+    directory_entry *first_non_empty_entry = NULL;
+    for (int i = 0; i < NUM_OF_FILES; i++) {
+        directory_entry current_entry = root_directory_table[i];
+        if (current_entry.i_node_id == -1)
+            continue;
+
+        if (traversed_files == 0)
+            first_non_empty_entry = &current_entry;
+
+        if (traversed_files++ == files_visited) {
+            memcpy(result_buffer, current_entry.file_name, sizeof(current_entry.file_name));
+            files_visited++;
+            return 1;
+        }
+    }
+
+    // If there is no first_non_empty entry, there is essentially no files in the root directory.
+    if (first_non_empty_entry == NULL)
+        return -1;
+    else {
+        memcpy(result_buffer, first_non_empty_entry->file_name, sizeof(first_non_empty_entry->file_name));
+        files_visited++;
+        return 1;
+    }
+}
+
+int sfs_getfilesize(const char *filename) {}
+
+int sfs_fopen(char *filename) {}
+
+int sfs_fclose(int fd) {}
+
+int sfs_fwrite(int fd, const char *buf, int length) {}
+
+int sfs_fread(int fd, char *buf, int length) {}
+
+int sfs_fseek(int fd, int loc) {}
+
+int sfs_remove(char *filename) {}
