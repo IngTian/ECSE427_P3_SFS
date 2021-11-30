@@ -222,7 +222,7 @@ void mksfs(int flag) {}
  * @param filename
  * @return int
  */
-int sfs_getnextresult_buffer(char *result_buffer) {
+int sfs_getnextfilename(char *result_buffer) {
     int traversed_files = 0;
     directory_entry *first_non_empty_entry = NULL;
     for (int i = 0; i < NUM_OF_FILES; i++) {
@@ -250,7 +250,24 @@ int sfs_getnextresult_buffer(char *result_buffer) {
     }
 }
 
-int sfs_getfilesize(const char *filename) {}
+/**
+ * @brief Get the file size of the specified file.
+ *
+ * @param filename The filename of the file.
+ * @return int The size.
+ */
+int sfs_getfilesize(const char *filename) {
+    for (int i = 0; i < NUM_OF_FILES; i++) {
+        directory_entry cur_entry = root_directory_table[i];
+        char *cur_file_name = cur_entry.file_name;
+        unsigned int i_node_id = cur_entry.i_node_id;
+        if (i_node_id == -1 || strcmp(filename, cur_file_name) != 0)
+            continue;
+        i_node node = i_node_table[i_node_id];
+        return node.size;
+    }
+    return -1;
+}
 
 int sfs_fopen(char *filename) {}
 
