@@ -181,25 +181,19 @@ void free_a_block_in_bitmap(int block_id) {
     flush_bit_map();
 }
 
+/**
+ * Clear a block to 0.
+ * @param block_id The block id of the given block.
+ */
+void clear_a_block(int block_id) {
+    char temp[BLOCK_SIZE];
+    memset(temp, 0, BLOCK_SIZE);
+    write_blocks(block_id, 1, temp);
+}
+
 // --------------------------------------------------------------------
 // ------------------------- API-Specific Utils -----------------------
 // --------------------------------------------------------------------
-/**
- * @brief Check whether a file exists in the root directory.
- *
- * @param filename The name of the file to check.
- * @return true if the file exists
- * @return false if the file does not exist
- *
- */
-bool does_file_exist_in_root(const char *filename) {
-    for (int i = 0; i < NUM_OF_FILES; i++)
-        if (root_directory_table[i].i_node_id != -1 && strcmp(root_directory_table[i].file_name, filename) == 0)
-            return true;
-
-    return false;
-}
-
 /**
  * @brief Get the directory entry of the given filename.
  * @param filename The name of file to retrieve.
@@ -306,6 +300,26 @@ int file_assign_new_block(i_node *node) {
 }
 
 /**
+ * Clear an i-Node.
+ * @param i_node_id The i-Node id of the i-Node to clear.
+ */
+void clear_i_node(int i_node_id) {
+    i_node node = i_node_table[i_node_id];
+    node.size = -1;
+    memset(node.direct_pointers, -1, 12);
+    node.indirect_pointer = -1;
+    flush_i_node_table();
+}
+
+int assign_i_node() {
+    int id = get_i_node_first_vacant_spot();
+    i_node node = i_node_table[id];
+    node.size = 0;
+    flush_i_node_table();
+    return id;
+}
+
+/**
  * Find the first vacant spot in the FDT.
  * @return The idx to the vacant spot.
  */
@@ -335,6 +349,13 @@ void initialize_constants(super_block *superblock) {
     } else {
         // Initialize according to the super_block.
     }
+}
+
+int get_fd_with_i_node_id(int i_node_id){
+    for (int i = 0; i < NUM_OF_FILES; ++i)
+        if (fdt_table[i].i_node_idx == i_node_id)
+            return i;
+    return -1;
 }
 
 // --------------------------------------------------------------------
@@ -393,10 +414,10 @@ int sfs_getfilesize(const char *filename) {
  * @return int
  */
 int sfs_fopen(char *filename) {
-    if (does_file_exist_in_root(filename)) {
-        directory_entry target = *get_file_in_root(filename);
+    directory_entry *target = get_file_in_root(filename);
+    if (target != NULL) {
         int vac_fdt = get_fdt_first_vacant_spot();
-        fdt_table[vac_fdt].i_node_idx = target.i_node_id;
+        fdt_table[vac_fdt].i_node_idx = (*target).i_node_id;
         fdt_table[vac_fdt].read_write_pointer = 0;
         return vac_fdt;
     } else {
@@ -433,7 +454,7 @@ int sfs_fwrite(int fd, const char *buf, int length) {
         int bytes_to_write = length >= BLOCK_SIZE ? BLOCK_SIZE : length;
         int block_id;
         if (ptr >= file_size) {
-            block_id = allocate_a_block_in_bitmap(DATA_BLOCK_START, DATA_BLOCK_LENGTH);
+            block_id = file_assign_new_block(&node);
             file_size += bytes_to_write;
         } else
             block_id = get_block_id_by_ptr(&node, ptr);
@@ -489,7 +510,7 @@ int sfs_fseek(int fd, int loc) {
  * @return 1 for success and -1 otherwise.
  */
 int sfs_remove(char *filename) {
-    if (!does_file_exist_in_root(filename))
+    if (get_file_in_root(filename) != NULL)
         return -1;
     directory_entry entry = *get_file_in_root(filename);
     i_node node = i_node_table[entry.i_node_id];
