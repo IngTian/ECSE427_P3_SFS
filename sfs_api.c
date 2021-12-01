@@ -260,6 +260,20 @@ int get_i_node_first_vacant_spot() {
     return -1;
 }
 
+int get_block_id_by_ptr(i_node *node, int loc) {
+    int file_size = node->size;
+    int indirect_ptr = node->indirect_pointer;
+    int indirect_block[BLOCK_SIZE];
+    if (indirect_ptr != -1)
+        write_blocks(indirect_ptr, 1, indirect_block);
+    if (loc >= file_size)
+        return -1;
+    else if (loc < 12 * BLOCK_SIZE)
+        return loc % BLOCK_SIZE;
+    else
+        return indirect_block[(loc - 12 * BLOCK_SIZE) % BLOCK_SIZE];
+}
+
 /**
  * Assign a new block to an i-Node.
  * @param node An i-Node.
@@ -411,9 +425,46 @@ int sfs_fclose(int fd) {
     return 1;
 }
 
-int sfs_fwrite(int fd, const char *buf, int length) {}
+int sfs_fwrite(int fd, const char *buf, int length) {
+    i_node node = i_node_table[fdt_table[fd].i_node_idx];
+    char *buf_cpy = buf;
+    int file_size = node.size, ptr = fdt_table[fd].read_write_pointer;
+    while (length > 0) {
+        int bytes_to_write = length >= BLOCK_SIZE ? BLOCK_SIZE : length;
+        int block_id;
+        if (ptr >= file_size) {
+            block_id = allocate_a_block_in_bitmap(DATA_BLOCK_START, DATA_BLOCK_LENGTH);
+            file_size += bytes_to_write;
+        } else
+            block_id = get_block_id_by_ptr(&node, ptr);
 
-int sfs_fread(int fd, char *buf, int length) {}
+        char *b[1024];
+        memcpy(b, buf_cpy, bytes_to_write);
+        write_blocks(block_id, 1, b);
+
+        buf_cpy += bytes_to_write;
+        ptr += bytes_to_write;
+        length -= bytes_to_write;
+    }
+    return 1;
+}
+
+int sfs_fread(int fd, char *buf, int length) {
+    i_node node = i_node_table[fdt_table[fd].i_node_idx];
+    char *buf_cpy = buf;
+    int file_size = node.size, ptr = fdt_table[fd].read_write_pointer;
+    while (length > 0) {
+        int bytes_to_read = file_size - ptr >= BLOCK_SIZE ? BLOCK_SIZE : file_size - ptr;
+        int block_id = get_block_id_by_ptr(&node, ptr);
+        char *block_data[1024];
+        read_blocks(block_id, 1, block_data);
+        memcpy(buf_cpy, block_data, bytes_to_read);
+        buf_cpy += bytes_to_read;
+        ptr += bytes_to_read;
+        length -= bytes_to_read;
+    }
+    return 1;
+}
 
 /**
  * @brief Adjust the read/write pointer of a file.
