@@ -57,12 +57,12 @@ int BITMAP_START;
 int BITMAP_LENGTH;
 
 // Cached variables.
-i_node i_node_table[NUM_OF_I_NODES];
-fdt_entry fdt_table[NUM_OF_FILES];
-directory_entry root_directory_table[NUM_OF_FILES];
-char bitmap[FILE_SYSTEM_SIZE / 8];
+i_node g_inode_table[NUM_OF_I_NODES];
+fdt_entry g_fdt[NUM_OF_FILES];
+directory_entry g_root_directory_table[NUM_OF_FILES];
+char g_bitmap[FILE_SYSTEM_SIZE / 8];
 
-int files_visited = 0;
+int root_file_counter = 0;
 
 #pragma region General Utils
 /**
@@ -95,48 +95,52 @@ void *write_data_to_a_buffer(void *data, unsigned int data_size) {
   memcpy(buffer, data, data_size);
   return buffer;
 }
+
+int min(int a, int b) { return a <= b ? a : b; }
+
+int max(int a, int b) { return a >= b ? a : b; }
 #pragma endregion
 
 #pragma region Bitmap Utils
 /**
  * @brief
  * Check whether the specified block is
- * available according to the bitmap.
+ * available according to the g_bitmap.
  * @param block_id The ID of the block to investigate.
  * @return True If free.
  * @return False If occupied.
  */
 bool bitmap_is_block_free(int block_id) {
   int row_num = block_id / 8, column_num = block_id % 8;
-  return (bitmap[row_num] & (1 << column_num)) > 0;
+  return (g_bitmap[row_num] & (1 << column_num)) > 0;
 }
 
 /**
  * @brief
- * Free a block in the bitmap
+ * Free a block in the g_bitmap
  * by setting it to 1.
  * @param block_id The ID of the block to free.
  */
 void bitmap_free_a_block(int block_id) {
   int row_num = block_id / 8, column_num = block_id % 8;
-  bitmap[row_num] |= (1 << column_num);
+  g_bitmap[row_num] |= (1 << column_num);
 }
 
 /**
  * @brief
- * Occupy a block in the bitmap
+ * Occupy a block in the g_bitmap
  * by setting it to 0.
  * @param block_id The ID of the block to occupy.
  */
 void bitmap_occupy_a_block(int block_id) {
   int row_num = block_id / 8, column_num = block_id % 8;
-  bitmap[row_num] &= ~(1 << column_num);
+  g_bitmap[row_num] &= ~(1 << column_num);
 }
 
 /**
  * @brief
  * Find the first available block
- * according to the bitmap.
+ * according to the g_bitmap.
  * @return The ID of the first free block.
  */
 int bitmap_find_first_available_block() {
@@ -152,7 +156,7 @@ int bitmap_find_first_available_block() {
  * Flush the cached i-Node table to the disk.
  */
 void flush_i_node_table() {
-  void *buffer = write_data_to_a_buffer(i_node_table, NUM_OF_I_NODES * sizeof(i_node));
+  void *buffer = write_data_to_a_buffer(g_inode_table, NUM_OF_I_NODES * sizeof(i_node));
   write_blocks(I_NODE_TABLE_START, I_NODE_TABLE_LENGTH, buffer);
   free(buffer);
 }
@@ -162,16 +166,16 @@ void flush_i_node_table() {
  * Flush the root directory table to the disk.
  */
 void flush_root_directory_table() {
-  void *buffer = write_data_to_a_buffer(root_directory_table, NUM_OF_FILES * sizeof(directory_entry));
+  void *buffer = write_data_to_a_buffer(g_root_directory_table, NUM_OF_FILES * sizeof(directory_entry));
   write_blocks(ROOT_DIRECTORY_START, ROOT_DIRECTORY_LENGTH, buffer);
 }
 
 /**
  * @brief
- * Flush the cached bitmap to the disk.
+ * Flush the cached g_bitmap to the disk.
  */
 void flush_bitmap() {
-  void *buffer = write_data_to_a_buffer(bitmap, FILE_SYSTEM_SIZE / 8);
+  void *buffer = write_data_to_a_buffer(g_bitmap, FILE_SYSTEM_SIZE / 8);
   write_blocks(BITMAP_START, BITMAP_LENGTH, buffer);
   free(buffer);
 }
@@ -187,8 +191,8 @@ void flush_bitmap() {
  */
 directory_entry *root_get_directory_entry(const char *filename) {
   for (int i = 0; i < NUM_OF_FILES; i++)
-    if (root_directory_table[i].i_node_id != -1 && strcmp(root_directory_table[i].file_name, filename) == 0)
-      return &root_directory_table[i];
+    if (g_root_directory_table[i].i_node_id != -1 && strcmp(g_root_directory_table[i].file_name, filename) == 0)
+      return &g_root_directory_table[i];
   return NULL;
 }
 
@@ -200,7 +204,7 @@ directory_entry *root_get_directory_entry(const char *filename) {
 int root_count_number_of_files() {
   int result = 0;
   for (int i = 0; i < NUM_OF_FILES; i++)
-    if (root_directory_table[i].i_node_id != -1) result++;
+    if (g_root_directory_table[i].i_node_id != -1) result++;
   return result;
 }
 
@@ -214,7 +218,7 @@ int root_count_number_of_files() {
 directory_entry *root_get_ith_file(int i) {
   int count = 0;
   for (int j = 0; j < NUM_OF_FILES; ++j)
-    if (root_directory_table[j].i_node_id != -1 && count++ == i) return &root_directory_table[i];
+    if (g_root_directory_table[j].i_node_id != -1 && count++ == i) return &g_root_directory_table[i];
   return NULL;
 }
 
@@ -227,7 +231,7 @@ directory_entry *root_get_ith_file(int i) {
  */
 int root_get_first_available_directory_entry() {
   for (int i = 0; i < NUM_OF_FILES; i++)
-    if (root_directory_table[i].i_node_id == -1) return i;
+    if (g_root_directory_table[i].i_node_id == -1) return i;
   return -1;
 }
 #pragma endregion
@@ -240,7 +244,7 @@ int root_get_first_available_directory_entry() {
  */
 int inode_tab_get_first_available_entry() {
   for (int i = 0; i < NUM_OF_I_NODES; ++i)
-    if (i_node_table[i].size != -1) return i;
+    if (g_inode_table[i].size != -1) return i;
   return -1;
 }
 
@@ -321,7 +325,7 @@ int inode_assign_new_block(i_node *node) {
  * @param i_node_id The i-Node ID of the i-Node to clear.
  */
 void inode_reset(int i_node_id) {
-  i_node node = i_node_table[i_node_id];
+  i_node node = g_inode_table[i_node_id];
   node.mode = 0x777;
   node.gid = -1;
   node.uid = -1;
@@ -358,14 +362,15 @@ void inode_reset(int i_node_id) {
  */
 int fdt_get_first_available_entry() {
   for (int i = 0; i < NUM_OF_FILES; ++i)
-    if (fdt_table[i].i_node_idx == -1) return i;
+    if (g_fdt[i].i_node_idx == -1) return i;
   return -1;
 }
 #pragma endregion
 
 #pragma region APIs
 /**
- * @brief Initialize Simple File System.
+ * @brief
+ * Initialize Simple File System.
  * If the flag is 1, we create the file system from scratch,
  * in accordance with the default settings.
  *
@@ -400,34 +405,34 @@ void mksfs(int flag) {
 
     // Save the initialized iNode table to disk.
     for (int i = 0; i < NUM_OF_I_NODES; i++) {
-      i_node_table[i].mode = 0x777;
-      i_node_table[i].link_count = 0;
-      i_node_table[i].uid = -1;
-      i_node_table[i].gid = -1;
-      i_node_table[i].size = -1;
-      memset(i_node_table->direct_pointers, -1, 12);
-      i_node_table[i].indirect_pointer = -1;
+      g_inode_table[i].mode = 0x777;
+      g_inode_table[i].link_count = 0;
+      g_inode_table[i].uid = -1;
+      g_inode_table[i].gid = -1;
+      g_inode_table[i].size = -1;
+      memset(g_inode_table->direct_pointers, -1, 12);
+      g_inode_table[i].indirect_pointer = -1;
     }
     flush_i_node_table();
 
     // Save the initialized root directory table to the disk.
     for (int i = 0; i < NUM_OF_FILES - 1; i++) {
-      root_directory_table[i].i_node_id = -1;
+      g_root_directory_table[i].i_node_id = -1;
       for (int j = 0; j < MAX_FILE_NAME_LENGTH + MAX_FILE_EXTENSION_LENGTH + 1; j++)
-        root_directory_table[i].file_name[j] = '\0';
+        g_root_directory_table[i].file_name[j] = '\0';
     }
     flush_root_directory_table();
 
-    // Save the bitmap.
-    for (int i = 0; i < FILE_SYSTEM_SIZE / 8; ++i) bitmap[i] = 255;
+    // Save the g_bitmap.
+    for (int i = 0; i < FILE_SYSTEM_SIZE / 8; ++i) g_bitmap[i] = 255;
     for (int i = 0; i < DATA_BLOCK_START; i++) bitmap_occupy_a_block(i);
     for (int i = BITMAP_START; i < FILE_SYSTEM_SIZE; i++) bitmap_occupy_a_block(i);
     flush_bitmap();
 
     // Initialize the FDT.
     for (int i = 0; i < NUM_OF_FILES; i++) {
-      fdt_table[i].i_node_idx = -1;
-      fdt_table[i].read_write_pointer = -1;
+      g_fdt[i].i_node_idx = -1;
+      g_fdt[i].read_write_pointer = -1;
     }
   } else {
     // The Simple File System is already stored on disk,
@@ -444,77 +449,100 @@ void mksfs(int flag) {
     DATA_BLOCK_LENGTH = BITMAP_START - DATA_BLOCK_START;
 
     // Read iNode table.
-    read_blocks(I_NODE_TABLE_START, I_NODE_TABLE_LENGTH, i_node_table);
+    read_blocks(I_NODE_TABLE_START, I_NODE_TABLE_LENGTH, g_inode_table);
 
     // Read root directory.
-    read_blocks(ROOT_DIRECTORY_START, ROOT_DIRECTORY_LENGTH, root_directory_table);
+    read_blocks(ROOT_DIRECTORY_START, ROOT_DIRECTORY_LENGTH, g_root_directory_table);
 
-    // Read the bitmap.
-    read_blocks(BITMAP_START, BITMAP_LENGTH, bitmap);
+    // Read the g_bitmap.
+    read_blocks(BITMAP_START, BITMAP_LENGTH, g_bitmap);
 
     // Initialize the FDT.
     for (int i = 0; i < NUM_OF_FILES; i++) {
-      fdt_table[i].i_node_idx = -1;
-      fdt_table[i].read_write_pointer = -1;
+      g_fdt[i].i_node_idx = -1;
+      g_fdt[i].read_write_pointer = -1;
     }
   }
 }
 
 /**
- * @brief Get the name of the next file.
+ * @brief
+ * Get the name of the next file.
  *
- * @param filename
- * @return int
+ * @param result_buffer The buffer to which the method writes the result.
+ * @return 1, if success.
+ * @return -1, otherwise.
  */
 int sfs_getnextfilename(char *result_buffer) {
   int count_of_files = root_count_number_of_files();
   if (count_of_files == 0)
     return -1;
-  else if (files_visited == count_of_files - 1) {
-    files_visited = 0;
+  else if (root_file_counter == count_of_files) {
+    root_file_counter = 0;
     char *file_name = root_get_ith_file(0)->file_name;
     memcpy(result_buffer, file_name, strlen(file_name));
     return 1;
   } else {
-    char *file_name = root_get_ith_file(files_visited++)->file_name;
+    char *file_name = root_get_ith_file(root_file_counter++)->file_name;
     memcpy(result_buffer, file_name, strlen(file_name));
     return 1;
   }
 }
 
 /**
- * @brief Get the file size of the specified file.
+ * @brief
+ * Get the file size of the specified file.
  *
- * @param filename The filename of the file.
- * @return int The size.
+ * @param filename The filename.
+ * @return int, the file size if the file exists.
+ * @return -1, if failed.
  */
 int sfs_getfilesize(const char *filename) {
   directory_entry *result = root_get_directory_entry(filename);
-  return result == NULL ? -1 : i_node_table[result->i_node_id].size;
+  return result == NULL ? -1 : g_inode_table[result->i_node_id].size;
 }
 
 /**
- * @brief Open the specified file. If the file does not exist, create the
- * file.
+ * @brief
+ * If the file exists, bring it into the FDT.
+ * If the file does not exist, create the file.
  *
- * @param filename The specified filename.
- * @return int
+ * @param filename The filename.
+ * @return 1, if success.
+ * @return 0, otherwise.
  */
 int sfs_fopen(char *filename) {
   directory_entry *target = root_get_directory_entry(filename);
   if (target != NULL) {
+    // The file exists in the root.
     int vac_fdt = fdt_get_first_available_entry();
-    fdt_table[vac_fdt].i_node_idx = (*target).i_node_id;
-    fdt_table[vac_fdt].read_write_pointer = 0;
+
+    // If the FDT is full.
+    if (vac_fdt == -1) {
+      printf("Cannot open file '%s' because the FDT is full.", filename);
+      return -1;
+    }
+
+    g_fdt[vac_fdt].i_node_idx = (*target).i_node_id;
+    g_fdt[vac_fdt].read_write_pointer = 0;
     return vac_fdt;
   } else {
-    int vac_root = root_get_first_available_directory_entry(), vac_i_node = inode_tab_get_first_available_entry(),
-        vac_fdt = fdt_get_first_available_entry();
-    i_node_table[vac_i_node].size = 0;
-    root_directory_table[vac_root].i_node_id = vac_i_node;
-    memcpy(root_directory_table[vac_root].file_name, filename, strlen(filename));
-    fdt_table[vac_fdt].i_node_idx = vac_i_node;
-    fdt_table[vac_fdt].read_write_pointer = 0;
+    // The file does not exist, and we shall create it.
+    int vac_root = root_get_first_available_directory_entry();
+    int vac_i_node = inode_tab_get_first_available_entry();
+    int vac_fdt = fdt_get_first_available_entry();
+
+    // If there is no available resources.
+    if (vac_root == -1 || vac_i_node == -1 || vac_fdt == -1) {
+      printf("Cannot open file '%s' because either the root, the iNode table, or the fdt is full.", filename);
+      return -1;
+    }
+
+    g_inode_table[vac_i_node].size = 0;
+    g_root_directory_table[vac_root].i_node_id = vac_i_node;
+    memcpy(g_root_directory_table[vac_root].file_name, filename, strlen(filename));
+    g_fdt[vac_fdt].i_node_idx = vac_i_node;
+    g_fdt[vac_fdt].read_write_pointer = 0;
     flush_i_node_table();
     flush_root_directory_table();
     return vac_fdt;
@@ -522,107 +550,173 @@ int sfs_fopen(char *filename) {
 }
 
 /**
- * @brief Remove the file from FDT.
+ * @brief
+ * Remove the file from the FDT.
  *
  * @param fd The file descriptor.
- * @return int 1 for success and -1 otherwise.
+ * @return 1, if success.
+ * @return -1, otherwise.
  */
 int sfs_fclose(int fd) {
-  if (fdt_table[fd].i_node_idx == -1) return -1;
-  fdt_table[fd].i_node_idx = -1;
+  g_fdt[fd].i_node_idx = -1;
+  g_fdt[fd].read_write_pointer = -1;
   return 1;
 }
 
+/**
+ * @brief
+ * Write to a file.
+ * @param fd The file descriptor.
+ * @param buf The buffer to write.
+ * @param length The length of the message.
+ * @return 1, if success.
+ * @return -1, otherwise.
+ */
 int sfs_fwrite(int fd, const char *buf, int length) {
-  i_node node = i_node_table[fdt_table[fd].i_node_idx];
-  char *buf_cpy = buf;
-  int file_size = node.size, ptr = fdt_table[fd].read_write_pointer;
-  while (length > 0) {
-    int bytes_to_write = length >= BLOCK_SIZE ? BLOCK_SIZE : length;
-    int block_id;
-    if (ptr >= file_size) {
-      block_id = inode_assign_new_block(&node);
-      file_size += bytes_to_write;
-    } else
-      block_id = inode_get_block_id_by_offset(&node, ptr);
+  // If the file has not been opened.
+  if (g_fdt[fd].i_node_idx == -1) {
+    printf("Cannot write to a file that is not opened.");
+    return -1;
+  }
 
-    char *b[1024];
-    memcpy(b, buf_cpy, bytes_to_write);
-    write_blocks(block_id, 1, b);
+  i_node node = g_inode_table[g_fdt[fd].i_node_idx];
+  char *buf_cpy = buf;
+  int file_size = node.size, ptr = g_fdt[fd].read_write_pointer;
+  while (length > 0) {
+    int bytes_to_write = length >= BLOCK_SIZE ? BLOCK_SIZE : min(BLOCK_SIZE - ptr & BLOCK_SIZE, length);
+    int block_id;
+
+    if (ptr >= file_size) {
+      // We are running out of blocks, assign new one.
+      block_id = inode_assign_new_block(&node);
+      char b[BLOCK_SIZE];
+      memcpy(b, buf_cpy, bytes_to_write);
+      write_blocks(block_id, 1, b);
+      file_size += bytes_to_write;
+    } else {
+      // Simple get the designate block.
+      block_id = inode_get_block_id_by_offset(&node, ptr);
+      char b[BLOCK_SIZE];
+      read_blocks(block_id, 1, b);
+      memcpy(b + ptr % BLOCK_SIZE, buf_cpy, bytes_to_write);
+      write_blocks(block_id, 1, b);
+    }
 
     buf_cpy += bytes_to_write;
     ptr += bytes_to_write;
     length -= bytes_to_write;
   }
+
+  node.size = file_size;
+  flush_bitmap();
+  flush_i_node_table();
+  g_fdt[fd].read_write_pointer = ptr;
+
   return 1;
 }
 
+/**
+ * @brief
+ * Read messages from the file.
+ * @param fd The file descriptor.
+ * @param buf The buffer to which the message is written.
+ * @param length The length of the message to read.
+ * @return 1, if success.
+ * @return 0, otherwise.
+ */
 int sfs_fread(int fd, char *buf, int length) {
-  i_node node = i_node_table[fdt_table[fd].i_node_idx];
+  // If the file has not been opened.
+  if (g_fdt[fd].i_node_idx == -1) {
+    printf("Cannot write to a file that is not opened.");
+    return -1;
+  }
+
+  i_node node = g_inode_table[g_fdt[fd].i_node_idx];
   char *buf_cpy = buf;
-  int file_size = node.size, ptr = fdt_table[fd].read_write_pointer;
+  int file_size = node.size, ptr = g_fdt[fd].read_write_pointer;
   while (length > 0) {
-    int bytes_to_read = file_size - ptr >= BLOCK_SIZE ? BLOCK_SIZE : file_size - ptr;
+    int bytes_to_read = length > BLOCK_SIZE ? BLOCK_SIZE : min(BLOCK_SIZE - ptr & BLOCK_SIZE, length);
+
+    if (ptr + bytes_to_read >= file_size) {
+      printf("Cannot read more after have reached the end of the file.");
+      return -1;
+    }
+
     int block_id = inode_get_block_id_by_offset(&node, ptr);
-    char *block_data[1024];
+    char block_data[1024];
     read_blocks(block_id, 1, block_data);
-    memcpy(buf_cpy, block_data, bytes_to_read);
+    memcpy(buf_cpy, block_data + ptr % BLOCK_SIZE, bytes_to_read);
     buf_cpy += bytes_to_read;
     ptr += bytes_to_read;
     length -= bytes_to_read;
   }
+
+  g_fdt[fd].read_write_pointer = ptr;
+
   return 1;
 }
 
 /**
- * @brief Adjust the read/write pointer of a file.
+ * @brief
+ * Adjust the read/write pointer of a file.
  *
  * @param fd The file descriptor.
  * @param loc The new location of the read/write pointer.
- * @return int 1 for success and -1 otherwise.
+ * @return 1, if success
+ * @return -1, otherwise.
  */
 int sfs_fseek(int fd, int loc) {
-  fdt_entry file = fdt_table[fd];
-  int i_node_id = file.i_node_idx;
-  i_node node = i_node_table[i_node_id];
-  if (node.size <= loc) return -1;
-  file.read_write_pointer = loc;
+  fdt_entry file = g_fdt[fd];
+
+  // If the fd is invalid.
+  if (file.i_node_idx == -1) {
+    printf("The file to seek has not been opened.");
+    return -1;
+  }
+
+  i_node node = g_inode_table[g_fdt[fd].i_node_idx];
+  int size = node.size;
+
+  // If the location exceeds the file size.
+  if (loc >= size) {
+    printf("The 'loc' variable has exceeded the file size.");
+    return -1;
+  }
+
+  g_fdt[fd].read_write_pointer = loc;
   return 1;
 }
 
 /**
- * Remove a file from the file system.
+ * @brief
+ * Delete a file.
  * @param filename Name of the file to remove.
- * @return 1 for success and -1 otherwise.
+ * @return 1, if success.
+ * @return -1, otherwise.
  */
 int sfs_remove(char *filename) {
-  if (root_get_directory_entry(filename) != NULL) return -1;
-  directory_entry entry = *root_get_directory_entry(filename);
-  i_node node = i_node_table[entry.i_node_id];
+  directory_entry *root_entry = root_get_directory_entry(filename);
+
+  // If the file to delete does not exist.
+  if (root_entry == NULL) return -1;
+
+  int inode_id = root_entry->i_node_id;
 
   // Clear fdt.
   for (int i = 0; i < NUM_OF_FILES; ++i)
-    if (fdt_table[i].i_node_idx == entry.i_node_id) {
-      fdt_table[i].i_node_idx = -1;
+    if (g_fdt[i].i_node_idx == inode_id) {
+      g_fdt[i].i_node_idx = -1;
+      g_fdt[i].read_write_pointer = -1;
       break;
     }
 
   // Clear i-Node table.
-  i_node_table[entry.i_node_id].size = -1;
+  inode_reset(inode_id);
 
-  // Clear memory;
-  for (int i = 0; i < 12 && node.direct_pointers[i] != -1; ++i) free_a_block_in_bitmap(node.direct_pointers[i]);
+  // Clear root directory.
+  root_entry->i_node_id = -1;
+  memset(root_entry->file_name, '\0', MAX_FILE_EXTENSION_LENGTH + MAX_FILE_NAME_LENGTH + 1);
 
-  if (node.indirect_pointer != -1) {
-    void *buf = (void *)malloc(BLOCK_SIZE);
-    read_blocks(node.indirect_pointer, 1, buf);
-    int array_of_pointers[BLOCK_SIZE];
-    memcpy(array_of_pointers, buf, BLOCK_SIZE);
-    free(buf);
-    for (int i = 0; i < BLOCK_SIZE && array_of_pointers[i] != -1; ++i) free_a_block_in_bitmap(array_of_pointers[i]);
-  }
-
-  flush_i_node_table();
   flush_root_directory_table();
 
   return 1;
