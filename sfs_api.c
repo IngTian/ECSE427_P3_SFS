@@ -60,7 +60,7 @@ int BITMAP_LENGTH;
 i_node g_inode_table[NUM_OF_I_NODES];
 fdt_entry g_fdt[NUM_OF_FILES];
 directory_entry g_root_directory_table[NUM_OF_FILES];
-char g_bitmap[FILE_SYSTEM_SIZE / 8];
+unsigned char g_bitmap[FILE_SYSTEM_SIZE / 8];
 
 int root_file_counter = 0;
 
@@ -246,7 +246,7 @@ int root_get_first_available_directory_entry() {
  */
 int inode_tab_get_first_available_entry() {
   for (int i = 0; i < NUM_OF_I_NODES; ++i)
-    if (g_inode_table[i].size != -1) return i;
+    if (g_inode_table[i].size == -1) return i;
   return -1;
 }
 
@@ -267,7 +267,7 @@ int inode_get_block_id_by_offset(i_node *node, int loc) {
     return -1;
   else if (loc < 12 * FILE_SYSTEM_BLOCK_SIZE)
     // The block should be in the direct pointers.
-    return loc % FILE_SYSTEM_BLOCK_SIZE;
+    return node->direct_pointers[loc % FILE_SYSTEM_BLOCK_SIZE];
   else {
     // The block should be in the indirect pointers.
     read_blocks(indirect_ptr, 1, indirect_block);
@@ -415,9 +415,17 @@ void mksfs(int flag) {
       g_inode_table[i].uid = -1;
       g_inode_table[i].gid = -1;
       g_inode_table[i].size = -1;
-      memset(g_inode_table->direct_pointers, -1, 12);
+      for (int j = 0; j < 12; ++j)
+        g_inode_table[i].direct_pointers[j] = -1;
       g_inode_table[i].indirect_pointer = -1;
     }
+
+    // Initialize root iNode.
+    struct i_node* r = &g_inode_table[0];
+    r->size = NUM_OF_FILES * sizeof(directory_entry);
+    for(int i = 0; i < ROOT_DIRECTORY_LENGTH; i++)
+      r->direct_pointers[i] = i + ROOT_DIRECTORY_START;
+
     flush_i_node_table();
 
     // Save the initialized root directory table to the disk.
@@ -587,9 +595,9 @@ int sfs_fwrite(int fd, const char *buf, int length) {
     return -1;
   }
 
-  i_node node = g_inode_table[g_fdt[fd].i_node_idx];
+  i_node* node = &g_inode_table[g_fdt[fd].i_node_idx];
   char *buf_cpy = buf;
-  int file_size = node.size, ptr = g_fdt[fd].read_write_pointer;
+  int file_size = node->size, ptr = g_fdt[fd].read_write_pointer;
   while (length > 0) {
     int bytes_to_write = length >= FILE_SYSTEM_BLOCK_SIZE
                              ? FILE_SYSTEM_BLOCK_SIZE
@@ -598,14 +606,14 @@ int sfs_fwrite(int fd, const char *buf, int length) {
 
     if (ptr >= file_size) {
       // We are running out of blocks, assign new one.
-      block_id = inode_assign_new_block(&node);
+      block_id = inode_assign_new_block(node);
       char b[FILE_SYSTEM_BLOCK_SIZE];
       memcpy(b, buf_cpy, bytes_to_write);
       write_blocks(block_id, 1, b);
       file_size += bytes_to_write;
     } else {
       // Simple get the designate block.
-      block_id = inode_get_block_id_by_offset(&node, ptr);
+      block_id = inode_get_block_id_by_offset(node, ptr);
       char b[FILE_SYSTEM_BLOCK_SIZE];
       read_blocks(block_id, 1, b);
       memcpy(b + ptr % FILE_SYSTEM_BLOCK_SIZE, buf_cpy, bytes_to_write);
@@ -617,7 +625,7 @@ int sfs_fwrite(int fd, const char *buf, int length) {
     length -= bytes_to_write;
   }
 
-  node.size = file_size;
+  node->size = file_size;
   flush_bitmap();
   flush_i_node_table();
   g_fdt[fd].read_write_pointer = ptr;
@@ -641,20 +649,15 @@ int sfs_fread(int fd, char *buf, int length) {
     return -1;
   }
 
-  i_node node = g_inode_table[g_fdt[fd].i_node_idx];
+  i_node* node = &g_inode_table[g_fdt[fd].i_node_idx];
   char *buf_cpy = buf;
-  int file_size = node.size, ptr = g_fdt[fd].read_write_pointer;
-  while (length > 0) {
+  int ptr = g_fdt[fd].read_write_pointer;
+  while (length > 0 && ptr < node->size) {
     int bytes_to_read = length > FILE_SYSTEM_BLOCK_SIZE
                             ? FILE_SYSTEM_BLOCK_SIZE
-                            : min(FILE_SYSTEM_BLOCK_SIZE - ptr & FILE_SYSTEM_BLOCK_SIZE, length);
+                            : min(FILE_SYSTEM_BLOCK_SIZE - ptr % FILE_SYSTEM_BLOCK_SIZE, length);
 
-    if (ptr + bytes_to_read >= file_size) {
-      printf("Cannot read more after have reached the end of the file.");
-      return -1;
-    }
-
-    int block_id = inode_get_block_id_by_offset(&node, ptr);
+    int block_id = inode_get_block_id_by_offset(node, ptr);
     char block_data[1024];
     read_blocks(block_id, 1, block_data);
     memcpy(buf_cpy, block_data + ptr % FILE_SYSTEM_BLOCK_SIZE, bytes_to_read);
@@ -678,15 +681,15 @@ int sfs_fread(int fd, char *buf, int length) {
  * @return -1, otherwise.
  */
 int sfs_fseek(int fd, int loc) {
-  fdt_entry file = g_fdt[fd];
+  fdt_entry* file = &g_fdt[fd];
 
   // If the fd is invalid.
-  if (file.i_node_idx == -1) {
+  if (file->i_node_idx == -1) {
     printf("The file to seek has not been opened.");
     return -1;
   }
 
-  i_node node = g_inode_table[g_fdt[fd].i_node_idx];
+  i_node node = g_inode_table[file->i_node_idx];
   int size = node.size;
 
   // If the location exceeds the file size.
@@ -695,7 +698,7 @@ int sfs_fseek(int fd, int loc) {
     return -1;
   }
 
-  g_fdt[fd].read_write_pointer = loc;
+  file->read_write_pointer = loc;
   return 1;
 }
 
