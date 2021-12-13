@@ -9,8 +9,8 @@
 
 #define MAX_FILE_NAME_LENGTH 16
 #define MAX_FILE_EXTENSION_LENGTH 3
-#define BLOCK_SIZE 1024
 #define FILE_SYSTEM_SIZE 1024
+#define FILE_SYSTEM_BLOCK_SIZE 1024
 #define NUM_OF_I_NODES 200
 #define NUM_OF_FILES (NUM_OF_I_NODES - 1)
 
@@ -74,9 +74,11 @@ int root_file_counter = 0;
  * @return unsigned int The number of blocks.
  */
 
-int calculate_block_length(unsigned int file_size) {
+int calculate_block_length(int file_size) {
   // Note that the result depends on the block size.
-  return file_size / BLOCK_SIZE + (file_size % BLOCK_SIZE) > 0;
+  int a = file_size / FILE_SYSTEM_BLOCK_SIZE;
+  int b = file_size % FILE_SYSTEM_BLOCK_SIZE > 0 ? 1 : 0;
+  return a + b;
 }
 
 /**
@@ -89,7 +91,7 @@ int calculate_block_length(unsigned int file_size) {
  */
 void *write_data_to_a_buffer(void *data, unsigned int data_size) {
   unsigned int num_of_blocks_needed = calculate_block_length(data_size);
-  unsigned int total_mem_size = num_of_blocks_needed * BLOCK_SIZE;
+  unsigned int total_mem_size = num_of_blocks_needed * FILE_SYSTEM_BLOCK_SIZE;
   void *buffer = (void *)malloc(total_mem_size);
   memset(buffer, 0, total_mem_size);
   memcpy(buffer, data, data_size);
@@ -259,17 +261,17 @@ int inode_tab_get_first_available_entry() {
 int inode_get_block_id_by_offset(i_node *node, int loc) {
   int file_size = node->size;
   int indirect_ptr = node->indirect_pointer;
-  int indirect_block[BLOCK_SIZE];
+  int indirect_block[FILE_SYSTEM_BLOCK_SIZE];
 
   if (file_size <= loc)
     return -1;
-  else if (loc < 12 * BLOCK_SIZE)
+  else if (loc < 12 * FILE_SYSTEM_BLOCK_SIZE)
     // The block should be in the direct pointers.
-    return loc % BLOCK_SIZE;
+    return loc % FILE_SYSTEM_BLOCK_SIZE;
   else {
     // The block should be in the indirect pointers.
     read_blocks(indirect_ptr, 1, indirect_block);
-    return indirect_block[(loc - 12 * BLOCK_SIZE) % BLOCK_SIZE];
+    return indirect_block[(loc - 12 * FILE_SYSTEM_BLOCK_SIZE) % FILE_SYSTEM_BLOCK_SIZE];
   }
 }
 
@@ -292,20 +294,20 @@ int inode_assign_new_block(i_node *node) {
     }
 
   // Try to assign to indirect blocks;
-  int indirect_block[BLOCK_SIZE];
+  int indirect_block[FILE_SYSTEM_BLOCK_SIZE];
   if (node->indirect_pointer == -1) {
     // If the indirect does not exist.
     node->indirect_pointer = bitmap_find_first_available_block();
     bitmap_occupy_a_block(node->indirect_pointer);
-    for (int i = 0; i < BLOCK_SIZE; i++) indirect_block[i] = -1;
+    for (int i = 0; i < FILE_SYSTEM_BLOCK_SIZE; i++) indirect_block[i] = -1;
     indirect_block[0] = vac_block;
   } else {
     // If the indirect block exists.
     read_blocks(node->indirect_pointer, 1, indirect_block);
     int i = 0;
-    for (; i < BLOCK_SIZE - 1 && indirect_block[i + 1] != -1; ++i)
+    for (; i < FILE_SYSTEM_BLOCK_SIZE - 1 && indirect_block[i + 1] != -1; ++i)
       ;
-    if (i == BLOCK_SIZE - 1) return -1;
+    if (i == FILE_SYSTEM_BLOCK_SIZE - 1) return -1;
     indirect_block[i] = vac_block;
   }
 
@@ -340,10 +342,10 @@ void inode_reset(int i_node_id) {
 
   // Clear indirect pointers.
   if (node.indirect_pointer != -1) {
-    int indirect_block[BLOCK_SIZE];
+    int indirect_block[FILE_SYSTEM_BLOCK_SIZE];
     read_blocks(node.indirect_pointer, 1, indirect_block);
 
-    for (int i = 0; i < BLOCK_SIZE && indirect_block[i] != -1; i++) bitmap_free_a_block(indirect_block[i]);
+    for (int i = 0; i < FILE_SYSTEM_BLOCK_SIZE && indirect_block[i] != -1; i++) bitmap_free_a_block(indirect_block[i]);
 
     node.indirect_pointer = -1;
   }
@@ -387,11 +389,14 @@ void mksfs(int flag) {
     ROOT_DIRECTORY_START = I_NODE_TABLE_START + I_NODE_TABLE_LENGTH;
     ROOT_DIRECTORY_LENGTH = calculate_block_length(NUM_OF_FILES * sizeof(directory_entry));
     DATA_BLOCK_START = ROOT_DIRECTORY_START + ROOT_DIRECTORY_LENGTH;
-    BITMAP_LENGTH = calculate_block_length(NUM_OF_FILES / 8 + NUM_OF_FILES % 8 > 0);
+    BITMAP_LENGTH = calculate_block_length(NUM_OF_FILES / 8 + (NUM_OF_FILES % 8 > 0 ? 1 : 0));
     BITMAP_START = FILE_SYSTEM_SIZE - BITMAP_LENGTH;
     DATA_BLOCK_LENGTH = BITMAP_START - DATA_BLOCK_START;
 
-    struct super_block super_block = {.block_size = BLOCK_SIZE,
+    // Init a fresh disk.
+    init_fresh_disk("sfs.txt", FILE_SYSTEM_BLOCK_SIZE, FILE_SYSTEM_SIZE);
+
+    struct super_block super_block = {.block_size = FILE_SYSTEM_BLOCK_SIZE,
                                       .file_system_size = FILE_SYSTEM_SIZE,
                                       .i_node_num = NUM_OF_I_NODES,
                                       .i_node_table_length = I_NODE_TABLE_LENGTH,
@@ -447,6 +452,9 @@ void mksfs(int flag) {
     BITMAP_LENGTH = calculate_block_length(NUM_OF_FILES / 8 + NUM_OF_FILES % 8 > 0);
     BITMAP_START = FILE_SYSTEM_SIZE - BITMAP_LENGTH;
     DATA_BLOCK_LENGTH = BITMAP_START - DATA_BLOCK_START;
+
+    // Init an existing disk
+    init_disk("sfs.txt", FILE_SYSTEM_BLOCK_SIZE, FILE_SYSTEM_SIZE);
 
     // Read iNode table.
     read_blocks(I_NODE_TABLE_START, I_NODE_TABLE_LENGTH, g_inode_table);
@@ -583,22 +591,24 @@ int sfs_fwrite(int fd, const char *buf, int length) {
   char *buf_cpy = buf;
   int file_size = node.size, ptr = g_fdt[fd].read_write_pointer;
   while (length > 0) {
-    int bytes_to_write = length >= BLOCK_SIZE ? BLOCK_SIZE : min(BLOCK_SIZE - ptr & BLOCK_SIZE, length);
+    int bytes_to_write = length >= FILE_SYSTEM_BLOCK_SIZE
+                             ? FILE_SYSTEM_BLOCK_SIZE
+                             : min(FILE_SYSTEM_BLOCK_SIZE - ptr & FILE_SYSTEM_BLOCK_SIZE, length);
     int block_id;
 
     if (ptr >= file_size) {
       // We are running out of blocks, assign new one.
       block_id = inode_assign_new_block(&node);
-      char b[BLOCK_SIZE];
+      char b[FILE_SYSTEM_BLOCK_SIZE];
       memcpy(b, buf_cpy, bytes_to_write);
       write_blocks(block_id, 1, b);
       file_size += bytes_to_write;
     } else {
       // Simple get the designate block.
       block_id = inode_get_block_id_by_offset(&node, ptr);
-      char b[BLOCK_SIZE];
+      char b[FILE_SYSTEM_BLOCK_SIZE];
       read_blocks(block_id, 1, b);
-      memcpy(b + ptr % BLOCK_SIZE, buf_cpy, bytes_to_write);
+      memcpy(b + ptr % FILE_SYSTEM_BLOCK_SIZE, buf_cpy, bytes_to_write);
       write_blocks(block_id, 1, b);
     }
 
@@ -635,7 +645,9 @@ int sfs_fread(int fd, char *buf, int length) {
   char *buf_cpy = buf;
   int file_size = node.size, ptr = g_fdt[fd].read_write_pointer;
   while (length > 0) {
-    int bytes_to_read = length > BLOCK_SIZE ? BLOCK_SIZE : min(BLOCK_SIZE - ptr & BLOCK_SIZE, length);
+    int bytes_to_read = length > FILE_SYSTEM_BLOCK_SIZE
+                            ? FILE_SYSTEM_BLOCK_SIZE
+                            : min(FILE_SYSTEM_BLOCK_SIZE - ptr & FILE_SYSTEM_BLOCK_SIZE, length);
 
     if (ptr + bytes_to_read >= file_size) {
       printf("Cannot read more after have reached the end of the file.");
@@ -645,7 +657,7 @@ int sfs_fread(int fd, char *buf, int length) {
     int block_id = inode_get_block_id_by_offset(&node, ptr);
     char block_data[1024];
     read_blocks(block_id, 1, block_data);
-    memcpy(buf_cpy, block_data + ptr % BLOCK_SIZE, bytes_to_read);
+    memcpy(buf_cpy, block_data + ptr % FILE_SYSTEM_BLOCK_SIZE, bytes_to_read);
     buf_cpy += bytes_to_read;
     ptr += bytes_to_read;
     length -= bytes_to_read;
