@@ -610,6 +610,11 @@ int sfs_fopen(char *filename) {
  * @return -1, otherwise.
  */
 int sfs_fclose(int fd) {
+  if (g_fdt[fd].i_node_idx == -1) {
+    printf("Attempt to close a file that has already been closed.");
+    return -1;
+  }
+
   g_fdt[fd].i_node_idx = -1;
   g_fdt[fd].read_write_pointer = -1;
   return 0;
