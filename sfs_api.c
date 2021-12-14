@@ -12,6 +12,7 @@
 #define MAX_FILE_EXTENSION_LENGTH 3
 #define FILE_SYSTEM_SIZE 1024
 #define FILE_SYSTEM_BLOCK_SIZE 1024
+#define INDIRECT_BLOCK_SIZE (FILE_SYSTEM_BLOCK_SIZE / sizeof(int))
 #define NUM_OF_I_NODES 200
 #define NUM_OF_FILES (NUM_OF_I_NODES - 1)
 #define VERBOSE true
@@ -363,7 +364,7 @@ int inode_tab_get_first_available_entry() {
 int inode_get_block_id_by_offset(i_node *node, int loc) {
   int file_size = node->size;
   int indirect_ptr = node->indirect_pointer;
-  int indirect_block[FILE_SYSTEM_BLOCK_SIZE];
+  int indirect_block[INDIRECT_BLOCK_SIZE];
 
   if ((calculate_block_length(file_size) * FILE_SYSTEM_BLOCK_SIZE) <= loc) {
     print_error("Trying to access memory that does not belong to the file.");
@@ -397,20 +398,20 @@ int inode_assign_new_block(i_node *node) {
     }
 
   // Try to assign to indirect blocks;
-  int indirect_block[FILE_SYSTEM_BLOCK_SIZE];
+  int indirect_block[INDIRECT_BLOCK_SIZE];
   if (node->indirect_pointer == -1) {
     // If the indirect does not exist.
     node->indirect_pointer = bitmap_find_first_available_block();
     bitmap_occupy_a_block(node->indirect_pointer);
-    for (int i = 0; i < FILE_SYSTEM_BLOCK_SIZE; i++) indirect_block[i] = -1;
+    for (int i = 0; i < INDIRECT_BLOCK_SIZE; i++) indirect_block[i] = -1;
     indirect_block[0] = vac_block;
   } else {
     // If the indirect block exists.
     read_blocks(node->indirect_pointer, 1, indirect_block);
     int i = 0;
-    for (; i < FILE_SYSTEM_BLOCK_SIZE - 1 && indirect_block[i + 1] != -1; ++i)
+    for (; i < INDIRECT_BLOCK_SIZE - 1 && indirect_block[i + 1] != -1; ++i)
       ;
-    if (i == FILE_SYSTEM_BLOCK_SIZE - 1) {
+    if (i == INDIRECT_BLOCK_SIZE - 1) {
       print_error("The file has consumed all available iNode space.");
       return -1;
     }
@@ -744,6 +745,17 @@ int sfs_fwrite(int fd, const char *buf, int length) {
     if (ptr % FILE_SYSTEM_BLOCK_SIZE == 0 && ptr >= file_size) {
       // We are running out of blocks, assign new one.
       block_id = inode_assign_new_block(node);
+
+      // If we cannot allocate more blocks,
+      // then there is an error.
+      if (block_id >= 1024) {
+        printf("f");
+      }
+      if (block_id == -1) {
+        print_error("Cannot allocate more blocks.");
+        return -1;
+      }
+
       char b[FILE_SYSTEM_BLOCK_SIZE];
       memcpy(b, buf_cpy, bytes_to_write);
       write_blocks(block_id, 1, b);
@@ -751,6 +763,12 @@ int sfs_fwrite(int fd, const char *buf, int length) {
     } else {
       // Simple get the designate block.
       block_id = inode_get_block_id_by_offset(node, ptr);
+
+      if (block_id >= 1024) {
+        block_id = inode_get_block_id_by_offset(node, ptr);
+        printf("f");
+      }
+
       char b[FILE_SYSTEM_BLOCK_SIZE];
       read_blocks(block_id, 1, b);
       memcpy(b + ptr % FILE_SYSTEM_BLOCK_SIZE, buf_cpy, bytes_to_write);
@@ -790,10 +808,13 @@ int sfs_fread(int fd, char *buf, int length) {
 
   i_node *node = &g_inode_table[g_fdt[fd].i_node_idx];
   char *buf_cpy = buf;
-  int ptr = g_fdt[fd].read_write_pointer, total_bytes_read = 0;
+  int ptr = g_fdt[fd].read_write_pointer, total_bytes_read = 0, file_size = node->size;
   while (length > 0 && ptr < node->size) {
     int bytes_to_read = min(FILE_SYSTEM_BLOCK_SIZE - ptr % FILE_SYSTEM_BLOCK_SIZE,
                             length >= FILE_SYSTEM_BLOCK_SIZE ? FILE_SYSTEM_BLOCK_SIZE : length);
+
+    // Calibrate the bytes_to_read with respect to file size.
+    bytes_to_read = min(bytes_to_read, file_size - ptr);
 
     int block_id = inode_get_block_id_by_offset(node, ptr);
     char block_data[1024];
