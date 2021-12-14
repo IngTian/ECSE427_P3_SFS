@@ -205,10 +205,9 @@ directory_entry *root_get_directory_entry(const char *filename) {
  * @param inode_idx The iNode ID.
  * @return Its directory entry.
  */
-directory_entry *root_get_directory_entry_via_inode(int inode_idx){
-  for(int i = 0; i < NUM_OF_FILES; i++)
-    if (g_root_directory_table[i].i_node_id == inode_idx)
-      return &g_root_directory_table[i];
+directory_entry *root_get_directory_entry_via_inode(int inode_idx) {
+  for (int i = 0; i < NUM_OF_FILES; i++)
+    if (g_root_directory_table[i].i_node_id == inode_idx) return &g_root_directory_table[i];
   return NULL;
 }
 
@@ -392,12 +391,11 @@ int fdt_get_first_available_entry() {
  * @return fd, if opened.
  * @return -1, otherwise.
  */
-bool fdt_get_fd_by_filename(const char* filename){
-  for(int i = 0; i < NUM_OF_FILES; i++)
-    if(g_fdt[i].i_node_idx != -1){
+int fdt_get_fd_by_filename(const char *filename) {
+  for (int i = 0; i < NUM_OF_FILES; i++)
+    if (g_fdt[i].i_node_idx != -1) {
       int inode_idx = g_fdt[i].i_node_idx;
-      if(strcmp(root_get_directory_entry_via_inode(inode_idx)->file_name, filename) == 0)
-        return i;
+      if (strcmp(root_get_directory_entry_via_inode(inode_idx)->file_name, filename) == 0) return i;
     }
   return -1;
 }
@@ -449,16 +447,14 @@ void mksfs(int flag) {
       g_inode_table[i].uid = -1;
       g_inode_table[i].gid = -1;
       g_inode_table[i].size = -1;
-      for (int j = 0; j < 12; ++j)
-        g_inode_table[i].direct_pointers[j] = -1;
+      for (int j = 0; j < 12; ++j) g_inode_table[i].direct_pointers[j] = -1;
       g_inode_table[i].indirect_pointer = -1;
     }
 
     // Initialize root iNode.
-    struct i_node* r = &g_inode_table[0];
+    struct i_node *r = &g_inode_table[0];
     r->size = NUM_OF_FILES * sizeof(directory_entry);
-    for(int i = 0; i < ROOT_DIRECTORY_LENGTH; i++)
-      r->direct_pointers[i] = i + ROOT_DIRECTORY_START;
+    for (int i = 0; i < ROOT_DIRECTORY_LENGTH; i++) r->direct_pointers[i] = i + ROOT_DIRECTORY_START;
 
     flush_i_node_table();
 
@@ -562,15 +558,13 @@ int sfs_getfilesize(const char *filename) {
  * @return 0, otherwise.
  */
 int sfs_fopen(char *filename) {
-  directory_entry *target = root_get_directory_entry(filename);
-
   // Search through the FDT.
   // If the file has already been opened,
   // simply return its file descriptor.
   int fd = fdt_get_fd_by_filename(filename);
-  if (fd != -1)
-    return fd;
+  if (fd != -1) return fd;
 
+  directory_entry *target = root_get_directory_entry(filename);
   if (target != NULL) {
     // The file exists in the root.
     int vac_fdt = fdt_get_first_available_entry();
@@ -627,7 +621,7 @@ int sfs_fclose(int fd) {
  * @param fd The file descriptor.
  * @param buf The buffer to write.
  * @param length The length of the message.
- * @return 1, if success.
+ * @return number of bytes written, if successful.
  * @return -1, otherwise.
  */
 int sfs_fwrite(int fd, const char *buf, int length) {
@@ -637,13 +631,11 @@ int sfs_fwrite(int fd, const char *buf, int length) {
     return -1;
   }
 
-  i_node* node = &g_inode_table[g_fdt[fd].i_node_idx];
+  i_node *node = &g_inode_table[g_fdt[fd].i_node_idx];
   char *buf_cpy = buf;
-  int file_size = node->size, ptr = g_fdt[fd].read_write_pointer;
+  int file_size = node->size, ptr = g_fdt[fd].read_write_pointer, total_bytes_written = 0;
   while (length > 0) {
-    int bytes_to_write = length >= FILE_SYSTEM_BLOCK_SIZE
-                             ? FILE_SYSTEM_BLOCK_SIZE
-                             : min(FILE_SYSTEM_BLOCK_SIZE - ptr & FILE_SYSTEM_BLOCK_SIZE, length);
+    int bytes_to_write = min(FILE_SYSTEM_BLOCK_SIZE - ptr % FILE_SYSTEM_BLOCK_SIZE, length);
     int block_id;
 
     if (ptr >= file_size) {
@@ -665,6 +657,7 @@ int sfs_fwrite(int fd, const char *buf, int length) {
     buf_cpy += bytes_to_write;
     ptr += bytes_to_write;
     length -= bytes_to_write;
+    total_bytes_written += bytes_to_write;
   }
 
   node->size = file_size;
@@ -672,7 +665,7 @@ int sfs_fwrite(int fd, const char *buf, int length) {
   flush_i_node_table();
   g_fdt[fd].read_write_pointer = ptr;
 
-  return 1;
+  return total_bytes_written;
 }
 
 /**
@@ -691,13 +684,11 @@ int sfs_fread(int fd, char *buf, int length) {
     return -1;
   }
 
-  i_node* node = &g_inode_table[g_fdt[fd].i_node_idx];
+  i_node *node = &g_inode_table[g_fdt[fd].i_node_idx];
   char *buf_cpy = buf;
   int ptr = g_fdt[fd].read_write_pointer;
   while (length > 0 && ptr < node->size) {
-    int bytes_to_read = length > FILE_SYSTEM_BLOCK_SIZE
-                            ? FILE_SYSTEM_BLOCK_SIZE
-                            : min(FILE_SYSTEM_BLOCK_SIZE - ptr % FILE_SYSTEM_BLOCK_SIZE, length);
+    int bytes_to_read = min(FILE_SYSTEM_BLOCK_SIZE - ptr % FILE_SYSTEM_BLOCK_SIZE, length);
 
     int block_id = inode_get_block_id_by_offset(node, ptr);
     char block_data[1024];
@@ -723,7 +714,7 @@ int sfs_fread(int fd, char *buf, int length) {
  * @return -1, otherwise.
  */
 int sfs_fseek(int fd, int loc) {
-  fdt_entry* file = &g_fdt[fd];
+  fdt_entry *file = &g_fdt[fd];
 
   // If the fd is invalid.
   if (file->i_node_idx == -1) {
