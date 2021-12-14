@@ -576,7 +576,7 @@ int sfs_fopen(char *filename) {
     }
 
     g_fdt[vac_fdt].i_node_idx = (*target).i_node_id;
-    g_fdt[vac_fdt].read_write_pointer = 0;
+    g_fdt[vac_fdt].read_write_pointer = g_inode_table[target->i_node_id].size;
     return vac_fdt;
   } else {
     // The file does not exist, and we shall create it.
@@ -612,7 +612,7 @@ int sfs_fopen(char *filename) {
 int sfs_fclose(int fd) {
   g_fdt[fd].i_node_idx = -1;
   g_fdt[fd].read_write_pointer = -1;
-  return 1;
+  return 0;
 }
 
 /**
