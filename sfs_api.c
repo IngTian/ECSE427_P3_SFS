@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "disk_emu.h"
 
@@ -13,6 +14,83 @@
 #define FILE_SYSTEM_BLOCK_SIZE 1024
 #define NUM_OF_I_NODES 200
 #define NUM_OF_FILES (NUM_OF_I_NODES - 1)
+#define VERBOSE true
+
+#pragma region Some Output Colors
+// Regular text
+#define BLK "\e[0;30m"
+#define RED "\e[0;31m"
+#define GRN "\e[0;32m"
+#define YEL "\e[0;33m"
+#define BLU "\e[0;34m"
+#define MAG "\e[0;35m"
+#define CYN "\e[0;36m"
+#define WHT "\e[0;37m"
+
+// Regular bold text
+#define BBLK "\e[1;30m"
+#define BRED "\e[1;31m"
+#define BGRN "\e[1;32m"
+#define BYEL "\e[1;33m"
+#define BBLU "\e[1;34m"
+#define BMAG "\e[1;35m"
+#define BCYN "\e[1;36m"
+#define BWHT "\e[1;37m"
+
+// Regular underline text
+#define UBLK "\e[4;30m"
+#define URED "\e[4;31m"
+#define UGRN "\e[4;32m"
+#define UYEL "\e[4;33m"
+#define UBLU "\e[4;34m"
+#define UMAG "\e[4;35m"
+#define UCYN "\e[4;36m"
+#define UWHT "\e[4;37m"
+
+// Regular background
+#define BLKB "\e[40m"
+#define REDB "\e[41m"
+#define GRNB "\e[42m"
+#define YELB "\e[43m"
+#define BLUB "\e[44m"
+#define MAGB "\e[45m"
+#define CYNB "\e[46m"
+#define WHTB "\e[47m"
+
+// High intensty background
+#define BLKHB "\e[0;100m"
+#define REDHB "\e[0;101m"
+#define GRNHB "\e[0;102m"
+#define YELHB "\e[0;103m"
+#define BLUHB "\e[0;104m"
+#define MAGHB "\e[0;105m"
+#define CYNHB "\e[0;106m"
+#define WHTHB "\e[0;107m"
+
+// High intensty text
+#define HBLK "\e[0;90m"
+#define HRED "\e[0;91m"
+#define HGRN "\e[0;92m"
+#define HYEL "\e[0;93m"
+#define HBLU "\e[0;94m"
+#define HMAG "\e[0;95m"
+#define HCYN "\e[0;96m"
+#define HWHT "\e[0;97m"
+
+// Bold high intensity text
+#define BHBLK "\e[1;90m"
+#define BHRED "\e[1;91m"
+#define BHGRN "\e[1;92m"
+#define BHYEL "\e[1;93m"
+#define BHBLU "\e[1;94m"
+#define BHMAG "\e[1;95m"
+#define BHCYN "\e[1;96m"
+#define BHWHT "\e[1;97m"
+
+// Reset
+#define reset "\e[0m"
+
+#pragma endregion
 
 #pragma region Data Structures.
 typedef struct super_block {
@@ -101,6 +179,17 @@ void *write_data_to_a_buffer(void *data, unsigned int data_size) {
 int min(int a, int b) { return a <= b ? a : b; }
 
 int max(int a, int b) { return a >= b ? a : b; }
+
+/**
+ * @brief
+ * Print errors to stdout.
+ * @param msg The msg to print.
+ */
+void print_error(char *msg) {
+  if (VERBOSE) {
+    printf(BRED "[SFS ERROR] " reset "%s " BBLU "TIMESTAMP: " reset "%lu\n", msg, time(NULL));
+  }
+}
 #pragma endregion
 
 #pragma region Bitmap Utils
@@ -277,7 +366,7 @@ int inode_get_block_id_by_offset(i_node *node, int loc) {
   int indirect_block[FILE_SYSTEM_BLOCK_SIZE];
 
   if ((calculate_block_length(file_size) * FILE_SYSTEM_BLOCK_SIZE) <= loc) {
-    printf("Trying to access memory that does not belong to the file.\n");
+    print_error("Trying to access memory that does not belong to the file.");
     return -1;
   } else if (loc < 12 * FILE_SYSTEM_BLOCK_SIZE)
     // The block should be in the direct pointers.
@@ -322,7 +411,7 @@ int inode_assign_new_block(i_node *node) {
     for (; i < FILE_SYSTEM_BLOCK_SIZE - 1 && indirect_block[i + 1] != -1; ++i)
       ;
     if (i == FILE_SYSTEM_BLOCK_SIZE - 1) {
-      printf("The file has consumed all available iNode space.\n");
+      print_error("The file has consumed all available iNode space.");
       return -1;
     }
     indirect_block[i + 1] = vac_block;
@@ -575,7 +664,9 @@ int sfs_fopen(char *filename) {
 
     // If the FDT is full.
     if (vac_fdt == -1) {
-      printf("Cannot open file '%s' because the FDT is full.\n", filename);
+      char msg[1000];
+      sprintf(msg, "Cannot open file '%s' because the FDT is full.", filename);
+      print_error(msg);
       return -1;
     }
 
@@ -590,7 +681,9 @@ int sfs_fopen(char *filename) {
 
     // If there is no available resources.
     if (vac_root == -1 || vac_i_node == -1 || vac_fdt == -1) {
-      printf("Cannot open file '%s' because either the root, the iNode table, or the fdt is full.\n", filename);
+      char msg[1000];
+      sprintf(msg, "Cannot open file '%s' because either the root, the iNode table, or the fdt is full.", filename);
+      print_error(msg);
       return -1;
     }
 
@@ -615,7 +708,7 @@ int sfs_fopen(char *filename) {
  */
 int sfs_fclose(int fd) {
   if (g_fdt[fd].i_node_idx == -1) {
-    printf("Attempt to close a file that has already been closed.\n");
+    print_error("Attempt to close a file that has already been closed.");
     return -1;
   }
 
@@ -636,7 +729,7 @@ int sfs_fclose(int fd) {
 int sfs_fwrite(int fd, const char *buf, int length) {
   // If the file has not been opened.
   if (g_fdt[fd].i_node_idx == -1) {
-    printf("Cannot write to a file that is not opened.\n");
+    print_error("Cannot write to a file that is not opened.");
     return -1;
   }
 
@@ -691,7 +784,7 @@ int sfs_fwrite(int fd, const char *buf, int length) {
 int sfs_fread(int fd, char *buf, int length) {
   // If the file has not been opened.
   if (g_fdt[fd].i_node_idx == -1) {
-    printf("Cannot write to a file that is not opened.\n");
+    print_error("Cannot write to a file that is not opened.");
     return -1;
   }
 
@@ -731,7 +824,7 @@ int sfs_fseek(int fd, int loc) {
 
   // If the fd is invalid.
   if (file->i_node_idx == -1) {
-    printf("The file to seek has not been opened.\n");
+    print_error("The file to seek has not been opened.");
     return -1;
   }
 
@@ -740,7 +833,7 @@ int sfs_fseek(int fd, int loc) {
 
   // If the location exceeds the file size.
   if (loc >= size) {
-    printf("The 'loc' variable has exceeded the file size.\n");
+    print_error("The 'loc' variable has exceeded the file size.");
     return -1;
   }
 
