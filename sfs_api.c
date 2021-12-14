@@ -276,15 +276,16 @@ int inode_get_block_id_by_offset(i_node *node, int loc) {
   int indirect_ptr = node->indirect_pointer;
   int indirect_block[FILE_SYSTEM_BLOCK_SIZE];
 
-  if (file_size <= loc)
+  if ((calculate_block_length(file_size) * FILE_SYSTEM_BLOCK_SIZE) <= loc) {
+    printf("Trying to access memory that does not belong to the file.\n");
     return -1;
-  else if (loc < 12 * FILE_SYSTEM_BLOCK_SIZE)
+  } else if (loc < 12 * FILE_SYSTEM_BLOCK_SIZE)
     // The block should be in the direct pointers.
     return node->direct_pointers[loc % FILE_SYSTEM_BLOCK_SIZE];
   else {
     // The block should be in the indirect pointers.
     read_blocks(indirect_ptr, 1, indirect_block);
-    return indirect_block[(loc - 12 * FILE_SYSTEM_BLOCK_SIZE) % FILE_SYSTEM_BLOCK_SIZE];
+    return indirect_block[(loc - 12 * FILE_SYSTEM_BLOCK_SIZE) / FILE_SYSTEM_BLOCK_SIZE];
   }
 }
 
@@ -320,8 +321,11 @@ int inode_assign_new_block(i_node *node) {
     int i = 0;
     for (; i < FILE_SYSTEM_BLOCK_SIZE - 1 && indirect_block[i + 1] != -1; ++i)
       ;
-    if (i == FILE_SYSTEM_BLOCK_SIZE - 1) return -1;
-    indirect_block[i] = vac_block;
+    if (i == FILE_SYSTEM_BLOCK_SIZE - 1) {
+      printf("The file has consumed all available iNode space.\n");
+      return -1;
+    }
+    indirect_block[i + 1] = vac_block;
   }
 
   // Flush cached data structures to the disk.
@@ -571,7 +575,7 @@ int sfs_fopen(char *filename) {
 
     // If the FDT is full.
     if (vac_fdt == -1) {
-      printf("Cannot open file '%s' because the FDT is full.", filename);
+      printf("Cannot open file '%s' because the FDT is full.\n", filename);
       return -1;
     }
 
@@ -586,7 +590,7 @@ int sfs_fopen(char *filename) {
 
     // If there is no available resources.
     if (vac_root == -1 || vac_i_node == -1 || vac_fdt == -1) {
-      printf("Cannot open file '%s' because either the root, the iNode table, or the fdt is full.", filename);
+      printf("Cannot open file '%s' because either the root, the iNode table, or the fdt is full.\n", filename);
       return -1;
     }
 
@@ -611,7 +615,7 @@ int sfs_fopen(char *filename) {
  */
 int sfs_fclose(int fd) {
   if (g_fdt[fd].i_node_idx == -1) {
-    printf("Attempt to close a file that has already been closed.");
+    printf("Attempt to close a file that has already been closed.\n");
     return -1;
   }
 
@@ -632,7 +636,7 @@ int sfs_fclose(int fd) {
 int sfs_fwrite(int fd, const char *buf, int length) {
   // If the file has not been opened.
   if (g_fdt[fd].i_node_idx == -1) {
-    printf("Cannot write to a file that is not opened.");
+    printf("Cannot write to a file that is not opened.\n");
     return -1;
   }
 
@@ -640,10 +644,11 @@ int sfs_fwrite(int fd, const char *buf, int length) {
   char *buf_cpy = buf;
   int file_size = node->size, ptr = g_fdt[fd].read_write_pointer, total_bytes_written = 0;
   while (length > 0) {
-    int bytes_to_write = min(FILE_SYSTEM_BLOCK_SIZE - ptr % FILE_SYSTEM_BLOCK_SIZE, length);
+    int bytes_to_write = min(FILE_SYSTEM_BLOCK_SIZE - ptr % FILE_SYSTEM_BLOCK_SIZE,
+                             length >= FILE_SYSTEM_BLOCK_SIZE ? FILE_SYSTEM_BLOCK_SIZE : length);
     int block_id;
 
-    if (ptr >= file_size) {
+    if (ptr % FILE_SYSTEM_BLOCK_SIZE == 0 && ptr >= file_size) {
       // We are running out of blocks, assign new one.
       block_id = inode_assign_new_block(node);
       char b[FILE_SYSTEM_BLOCK_SIZE];
@@ -657,6 +662,7 @@ int sfs_fwrite(int fd, const char *buf, int length) {
       read_blocks(block_id, 1, b);
       memcpy(b + ptr % FILE_SYSTEM_BLOCK_SIZE, buf_cpy, bytes_to_write);
       write_blocks(block_id, 1, b);
+      file_size = max(file_size, ptr + bytes_to_write);
     }
 
     buf_cpy += bytes_to_write;
@@ -685,15 +691,16 @@ int sfs_fwrite(int fd, const char *buf, int length) {
 int sfs_fread(int fd, char *buf, int length) {
   // If the file has not been opened.
   if (g_fdt[fd].i_node_idx == -1) {
-    printf("Cannot write to a file that is not opened.");
+    printf("Cannot write to a file that is not opened.\n");
     return -1;
   }
 
   i_node *node = &g_inode_table[g_fdt[fd].i_node_idx];
   char *buf_cpy = buf;
-  int ptr = g_fdt[fd].read_write_pointer;
+  int ptr = g_fdt[fd].read_write_pointer, total_bytes_read = 0;
   while (length > 0 && ptr < node->size) {
-    int bytes_to_read = min(FILE_SYSTEM_BLOCK_SIZE - ptr % FILE_SYSTEM_BLOCK_SIZE, length);
+    int bytes_to_read = min(FILE_SYSTEM_BLOCK_SIZE - ptr % FILE_SYSTEM_BLOCK_SIZE,
+                            length >= FILE_SYSTEM_BLOCK_SIZE ? FILE_SYSTEM_BLOCK_SIZE : length);
 
     int block_id = inode_get_block_id_by_offset(node, ptr);
     char block_data[1024];
@@ -702,11 +709,12 @@ int sfs_fread(int fd, char *buf, int length) {
     buf_cpy += bytes_to_read;
     ptr += bytes_to_read;
     length -= bytes_to_read;
+    total_bytes_read += bytes_to_read;
   }
 
   g_fdt[fd].read_write_pointer = ptr;
 
-  return 1;
+  return total_bytes_read;
 }
 
 /**
@@ -723,7 +731,7 @@ int sfs_fseek(int fd, int loc) {
 
   // If the fd is invalid.
   if (file->i_node_idx == -1) {
-    printf("The file to seek has not been opened.");
+    printf("The file to seek has not been opened.\n");
     return -1;
   }
 
@@ -732,7 +740,7 @@ int sfs_fseek(int fd, int loc) {
 
   // If the location exceeds the file size.
   if (loc >= size) {
-    printf("The 'loc' variable has exceeded the file size.");
+    printf("The 'loc' variable has exceeded the file size.\n");
     return -1;
   }
 
