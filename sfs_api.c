@@ -200,6 +200,20 @@ directory_entry *root_get_directory_entry(const char *filename) {
 
 /**
  * @brief
+ * Get the directory entry of a file
+ * given its inode.
+ * @param inode_idx The iNode ID.
+ * @return Its directory entry.
+ */
+directory_entry *root_get_directory_entry_via_inode(int inode_idx){
+  for(int i = 0; i < NUM_OF_FILES; i++)
+    if (g_root_directory_table[i].i_node_id == inode_idx)
+      return &g_root_directory_table[i];
+  return NULL;
+}
+
+/**
+ * @brief
  * Get the number of files in the root.
  * @return The number of files.
  */
@@ -367,6 +381,26 @@ int fdt_get_first_available_entry() {
     if (g_fdt[i].i_node_idx == -1) return i;
   return -1;
 }
+
+/**
+ * @brief
+ * Determine if the file has already
+ * been opened. If it has, then simple
+ * return its file descriptor, otherwise
+ * return -1.
+ * @param filename The filename.
+ * @return fd, if opened.
+ * @return -1, otherwise.
+ */
+bool fdt_get_fd_by_filename(const char* filename){
+  for(int i = 0; i < NUM_OF_FILES; i++)
+    if(g_fdt[i].i_node_idx != -1){
+      int inode_idx = g_fdt[i].i_node_idx;
+      if(strcmp(root_get_directory_entry_via_inode(inode_idx)->file_name, filename) == 0)
+        return i;
+    }
+  return -1;
+}
 #pragma endregion
 
 #pragma region APIs
@@ -529,6 +563,14 @@ int sfs_getfilesize(const char *filename) {
  */
 int sfs_fopen(char *filename) {
   directory_entry *target = root_get_directory_entry(filename);
+
+  // Search through the FDT.
+  // If the file has already been opened,
+  // simply return its file descriptor.
+  int fd = fdt_get_fd_by_filename(filename);
+  if (fd != -1)
+    return fd;
+
   if (target != NULL) {
     // The file exists in the root.
     int vac_fdt = fdt_get_first_available_entry();
