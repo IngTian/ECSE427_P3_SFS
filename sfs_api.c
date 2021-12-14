@@ -281,7 +281,7 @@ int inode_get_block_id_by_offset(i_node *node, int loc) {
     return -1;
   } else if (loc < 12 * FILE_SYSTEM_BLOCK_SIZE)
     // The block should be in the direct pointers.
-    return node->direct_pointers[loc % FILE_SYSTEM_BLOCK_SIZE];
+    return node->direct_pointers[loc / FILE_SYSTEM_BLOCK_SIZE];
   else {
     // The block should be in the indirect pointers.
     read_blocks(indirect_ptr, 1, indirect_block);
