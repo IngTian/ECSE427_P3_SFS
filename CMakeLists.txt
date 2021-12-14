@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.10)
 project(test)
 
 add_executable(test0 sfs_test0.c disk_emu.c sfs_api.c)
