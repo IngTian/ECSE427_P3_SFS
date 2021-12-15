@@ -8,7 +8,7 @@
 
 #include "disk_emu.h"
 
-#define MAX_FILE_NAME_LENGTH 45
+#define MAX_FILE_NAME_LENGTH 25
 #define MAX_FILE_EXTENSION_LENGTH 5
 #define FILE_SYSTEM_SIZE 1024
 #define FILE_SYSTEM_BLOCK_SIZE 1024
@@ -650,6 +650,15 @@ int sfs_getfilesize(const char *filename) {
  * @return 0, otherwise.
  */
 int sfs_fopen(char *filename) {
+  // Test if the filename is too long.
+  // If it is. we should reject the request.
+  if (strlen(filename) > MAX_FILE_EXTENSION_LENGTH + MAX_FILE_NAME_LENGTH + 2) {
+    char msg[100];
+    sprintf(msg, "The filename is too long, with %lu bytes.", strlen(filename));
+    print_error(msg);
+    return -1;
+  }
+
   // Search through the FDT.
   // If the file has already been opened,
   // simply return its file descriptor.
@@ -688,7 +697,7 @@ int sfs_fopen(char *filename) {
 
     g_inode_table[vac_i_node].size = 0;
     g_root_directory_table[vac_root].i_node_id = vac_i_node;
-    memcpy(g_root_directory_table[vac_root].file_name, filename, strlen(filename));
+    strcpy(g_root_directory_table[vac_root].file_name, filename);
     g_fdt[vac_fdt].i_node_idx = vac_i_node;
     g_fdt[vac_fdt].read_write_pointer = 0;
     flush_i_node_table();
@@ -746,9 +755,6 @@ int sfs_fwrite(int fd, const char *buf, int length) {
 
       // If we cannot allocate more blocks,
       // then there is an error.
-      if (block_id >= 1024) {
-        printf("f");
-      }
       if (block_id == -1) {
         print_error("Cannot allocate more blocks.");
         return -1;
@@ -761,11 +767,6 @@ int sfs_fwrite(int fd, const char *buf, int length) {
     } else {
       // Simple get the designate block.
       block_id = inode_get_block_id_by_offset(node, ptr);
-
-      if (block_id >= 1024) {
-        block_id = inode_get_block_id_by_offset(node, ptr);
-        printf("f");
-      }
 
       char b[FILE_SYSTEM_BLOCK_SIZE];
       read_blocks(block_id, 1, b);
