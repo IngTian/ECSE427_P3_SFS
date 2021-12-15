@@ -104,10 +104,7 @@ typedef struct super_block {
 } super_block;
 
 typedef struct i_node {
-  int mode;  // The mode to operate on this file.
-  int link_count;
-  int uid;
-  int gid;
+  int mode, link_count, uid, gid;
   int size;                 // The size of the file.
   int direct_pointers[12];  // 12 direct pointers, each pointing to a data
                             // block.
@@ -188,7 +185,7 @@ int max(int a, int b) { return a >= b ? a : b; }
  */
 void print_error(char *msg) {
   if (VERBOSE) {
-    printf(BRED "[SFS ERROR] " reset "%s " BBLU "TIMESTAMP: " reset "%lu\n", msg, time(NULL));
+    printf(GRN "ING TIAN: " BRED "[SFS ERROR] " BBLU "TIMESTAMP: " reset "%lu --> " reset "%s\n", time(NULL), msg);
   }
 }
 #pragma endregion
