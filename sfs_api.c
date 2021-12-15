@@ -434,27 +434,27 @@ int inode_assign_new_block(i_node *node) {
  * @param i_node_id The i-Node ID of the i-Node to clear.
  */
 void inode_reset(int i_node_id) {
-  i_node node = g_inode_table[i_node_id];
-  node.mode = 0x777;
-  node.gid = -1;
-  node.uid = -1;
-  node.link_count = 0;
-  node.size = -1;
+  i_node *node = &g_inode_table[i_node_id];
+  node->mode = 0x777;
+  node->gid = -1;
+  node->uid = -1;
+  node->link_count = 0;
+  node->size = -1;
 
   // Clear the direct pointers.
-  for (int i = 0; i < 12 && node.direct_pointers[i] != -1; i++) {
-    bitmap_free_a_block(node.direct_pointers[i]);
-    node.direct_pointers[i] = -1;
+  for (int i = 0; i < 12 && node->direct_pointers[i] != -1; i++) {
+    bitmap_free_a_block(node->direct_pointers[i]);
+    node->direct_pointers[i] = -1;
   }
 
   // Clear indirect pointers.
-  if (node.indirect_pointer != -1) {
-    int indirect_block[FILE_SYSTEM_BLOCK_SIZE];
-    read_blocks(node.indirect_pointer, 1, indirect_block);
+  if (node->indirect_pointer != -1) {
+    int indirect_block[INDIRECT_BLOCK_SIZE];
+    read_blocks(node->indirect_pointer, 1, indirect_block);
 
-    for (int i = 0; i < FILE_SYSTEM_BLOCK_SIZE && indirect_block[i] != -1; i++) bitmap_free_a_block(indirect_block[i]);
+    for (int i = 0; i < INDIRECT_BLOCK_SIZE && indirect_block[i] != -1; i++) bitmap_free_a_block(indirect_block[i]);
 
-    node.indirect_pointer = -1;
+    node->indirect_pointer = -1;
   }
 
   // Flush all memory changes to the disk.
@@ -553,7 +553,7 @@ void mksfs(int flag) {
     flush_i_node_table();
 
     // Save the initialized root directory table to the disk.
-    for (int i = 0; i < NUM_OF_FILES - 1; i++) {
+    for (int i = 0; i < NUM_OF_FILES; i++) {
       g_root_directory_table[i].i_node_id = -1;
       for (int j = 0; j < MAX_FILE_NAME_LENGTH + MAX_FILE_EXTENSION_LENGTH + 1; j++)
         g_root_directory_table[i].file_name[j] = '\0';
@@ -616,15 +616,13 @@ void mksfs(int flag) {
 int sfs_getnextfilename(char *result_buffer) {
   int count_of_files = root_count_number_of_files();
   if (count_of_files == 0)
-    return -1;
+    return 0;
   else if (root_file_counter == count_of_files) {
     root_file_counter = 0;
-    char *file_name = root_get_ith_file(0)->file_name;
-    memcpy(result_buffer, file_name, strlen(file_name));
-    return 1;
+    return 0;
   } else {
     char *file_name = root_get_ith_file(root_file_counter++)->file_name;
-    memcpy(result_buffer, file_name, strlen(file_name));
+    strcpy(result_buffer, file_name);
     return 1;
   }
 }
