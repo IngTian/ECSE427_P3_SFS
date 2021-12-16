@@ -586,13 +586,22 @@ void mksfs(int flag) {
     init_disk("sfs.txt", FILE_SYSTEM_BLOCK_SIZE, FILE_SYSTEM_SIZE);
 
     // Read iNode table.
-    read_blocks(I_NODE_TABLE_START, I_NODE_TABLE_LENGTH, g_inode_table);
+    void *buf = (void *)malloc(I_NODE_TABLE_LENGTH * FILE_SYSTEM_BLOCK_SIZE);
+    read_blocks(I_NODE_TABLE_START, I_NODE_TABLE_LENGTH, buf);
+    memcpy(g_inode_table, buf, sizeof(i_node) * NUM_OF_I_NODES);
+    free(buf);
 
     // Read root directory.
-    read_blocks(ROOT_DIRECTORY_START, ROOT_DIRECTORY_LENGTH, g_root_directory_table);
+    buf = (void *)malloc(ROOT_DIRECTORY_LENGTH * FILE_SYSTEM_BLOCK_SIZE);
+    read_blocks(ROOT_DIRECTORY_START, ROOT_DIRECTORY_LENGTH, buf);
+    memcpy(g_root_directory_table, buf, sizeof(directory_entry) * NUM_OF_FILES);
+    free(buf);
 
     // Read the g_bitmap.
-    read_blocks(BITMAP_START, BITMAP_LENGTH, g_bitmap);
+    buf = (void *)malloc(BITMAP_LENGTH * FILE_SYSTEM_BLOCK_SIZE);
+    read_blocks(BITMAP_START, BITMAP_LENGTH, buf);
+    memcpy(g_bitmap, buf, FILE_SYSTEM_BLOCK_SIZE / 8);
+    free(buf);
 
     // Initialize the FDT.
     for (int i = 0; i < NUM_OF_FILES; i++) {
