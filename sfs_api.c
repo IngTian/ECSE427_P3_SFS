@@ -854,15 +854,6 @@ int sfs_fseek(int fd, int loc) {
     return -1;
   }
 
-  i_node node = g_inode_table[file->i_node_idx];
-  int size = node.size;
-
-  // If the location exceeds the file size.
-  if (loc >= size) {
-    print_error("The 'loc' variable has exceeded the file size.");
-    return -1;
-  }
-
   file->read_write_pointer = loc;
   return 1;
 }
