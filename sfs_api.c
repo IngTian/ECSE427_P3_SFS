@@ -257,6 +257,7 @@ void flush_i_node_table() {
 void flush_root_directory_table() {
   void *buffer = write_data_to_a_buffer(g_root_directory_table, NUM_OF_FILES * sizeof(directory_entry));
   write_blocks(ROOT_DIRECTORY_START, ROOT_DIRECTORY_LENGTH, buffer);
+  free(buffer);
 }
 
 /**
