@@ -104,10 +104,7 @@ typedef struct super_block {
 } super_block;
 
 typedef struct i_node {
-  int mode;  // The mode to operate on this file.
-  int link_count;
-  int uid;
-  int gid;
+  int mode, link_count, uid, gid;
   int size;                 // The size of the file.
   int direct_pointers[12];  // 12 direct pointers, each pointing to a data
                             // block.
@@ -188,7 +185,7 @@ int max(int a, int b) { return a >= b ? a : b; }
  */
 void print_error(char *msg) {
   if (VERBOSE) {
-    printf(BRED "[SFS ERROR] " reset "%s " BBLU "TIMESTAMP: " reset "%lu\n", msg, time(NULL));
+    printf(GRN "ING TIAN: " BRED "[SFS ERROR] " BBLU "TIMESTAMP: " reset "%lu --> " reset "%s\n", time(NULL), msg);
   }
 }
 #pragma endregion
@@ -260,6 +257,7 @@ void flush_i_node_table() {
 void flush_root_directory_table() {
   void *buffer = write_data_to_a_buffer(g_root_directory_table, NUM_OF_FILES * sizeof(directory_entry));
   write_blocks(ROOT_DIRECTORY_START, ROOT_DIRECTORY_LENGTH, buffer);
+  free(buffer);
 }
 
 /**
@@ -589,13 +587,22 @@ void mksfs(int flag) {
     init_disk("sfs.txt", FILE_SYSTEM_BLOCK_SIZE, FILE_SYSTEM_SIZE);
 
     // Read iNode table.
-    read_blocks(I_NODE_TABLE_START, I_NODE_TABLE_LENGTH, g_inode_table);
+    void *buf = (void *)malloc(I_NODE_TABLE_LENGTH * FILE_SYSTEM_BLOCK_SIZE);
+    read_blocks(I_NODE_TABLE_START, I_NODE_TABLE_LENGTH, buf);
+    memcpy(g_inode_table, buf, sizeof(i_node) * NUM_OF_I_NODES);
+    free(buf);
 
     // Read root directory.
-    read_blocks(ROOT_DIRECTORY_START, ROOT_DIRECTORY_LENGTH, g_root_directory_table);
+    buf = (void *)malloc(ROOT_DIRECTORY_LENGTH * FILE_SYSTEM_BLOCK_SIZE);
+    read_blocks(ROOT_DIRECTORY_START, ROOT_DIRECTORY_LENGTH, buf);
+    memcpy(g_root_directory_table, buf, sizeof(directory_entry) * NUM_OF_FILES);
+    free(buf);
 
     // Read the g_bitmap.
-    read_blocks(BITMAP_START, BITMAP_LENGTH, g_bitmap);
+    buf = (void *)malloc(BITMAP_LENGTH * FILE_SYSTEM_BLOCK_SIZE);
+    read_blocks(BITMAP_START, BITMAP_LENGTH, buf);
+    memcpy(g_bitmap, buf, FILE_SYSTEM_BLOCK_SIZE / 8);
+    free(buf);
 
     // Initialize the FDT.
     for (int i = 0; i < NUM_OF_FILES; i++) {
@@ -845,15 +852,6 @@ int sfs_fseek(int fd, int loc) {
   // If the fd is invalid.
   if (file->i_node_idx == -1) {
     print_error("The file to seek has not been opened.");
-    return -1;
-  }
-
-  i_node node = g_inode_table[file->i_node_idx];
-  int size = node.size;
-
-  // If the location exceeds the file size.
-  if (loc >= size) {
-    print_error("The 'loc' variable has exceeded the file size.");
     return -1;
   }
 
